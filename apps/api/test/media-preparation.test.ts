@@ -68,6 +68,7 @@ function mediaItem() {
     durationSeconds: 100,
     compatibility: 'COPY' as const,
     published: true,
+    variants: [],
   };
 }
 
