@@ -84,8 +84,15 @@ EASY_STREAM_PROJECT_ROOT="${fixture}" bash -c '
   CACHE_MAX_BYTES=2147483648000
   write_environment >/dev/null
   test -f "$EASY_STREAM_PROJECT_ROOT/.env"
-  permissions="$(stat -f %Lp "$EASY_STREAM_PROJECT_ROOT/.env" 2>/dev/null || stat -c %a "$EASY_STREAM_PROJECT_ROOT/.env")"
-  test "$permissions" = 600
+  if permissions="$(stat -c %a "$EASY_STREAM_PROJECT_ROOT/.env" 2>/dev/null)"; then
+    : # GNU stat (Ubuntu)
+  else
+    permissions="$(stat -f %Lp "$EASY_STREAM_PROJECT_ROOT/.env")" # BSD stat (macOS)
+  fi
+  if test "$permissions" != 600; then
+    printf "Expected generated .env mode 600, got %s\n" "$permissions" >&2
+    exit 1
+  fi
   test "$(grep -c "^PLAYBACK_TTL_SECONDS=" "$EASY_STREAM_PROJECT_ROOT/.env")" -eq 1
   grep -q "^NODE_ENV=production$" "$EASY_STREAM_PROJECT_ROOT/.env"
   grep -q "^PUBLIC_ORIGIN='"'"'https://stream.example.com'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
