@@ -167,18 +167,35 @@ install_caddy() {
   fi
 
   info "Installing Caddy from Caddy's official Ubuntu repository"
+  local repository_file='/etc/apt/sources.list.d/caddy-stable.list'
+  local disabled_repository_file='/etc/apt/sources.list.d/caddy-stable.list.disabled-by-easy-stream'
+  local keyring_file='/usr/share/keyrings/caddy-stable-archive-keyring.gpg'
+
+  # A previous interrupted attempt may have enabled the repository without a
+  # readable keyring. Disable it before the prerequisite apt update so reruns
+  # can repair themselves instead of failing at the first command.
+  if [[ -f "${repository_file}" ]]; then
+    run_root mv -f "${repository_file}" "${disabled_repository_file}"
+  fi
   run_root_network env DEBIAN_FRONTEND=noninteractive apt-get update
   run_root_network env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ca-certificates curl debian-archive-keyring debian-keyring gpg
+    apt-transport-https ca-certificates curl debian-archive-keyring debian-keyring gpg
 
-  local key_tmp repository_tmp
+  local key_tmp keyring_tmp repository_tmp
   key_tmp="$(mktemp)"
+  keyring_tmp="$(mktemp)"
   repository_tmp="$(mktemp)"
-  CLEANUP_FILES+=("${key_tmp}" "${repository_tmp}")
+  CLEANUP_FILES+=("${key_tmp}" "${keyring_tmp}" "${repository_tmp}")
   download 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' "${key_tmp}"
   download 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' "${repository_tmp}"
-  run_root gpg --batch --yes --dearmor --output /usr/share/keyrings/caddy-stable-archive-keyring.gpg "${key_tmp}"
-  run_root install -m 0644 "${repository_tmp}" /etc/apt/sources.list.d/caddy-stable.list
+  gpg --batch --show-keys "${key_tmp}" >/dev/null \
+    || die 'The downloaded Caddy repository key is not a valid OpenPGP key.'
+  gpg --batch --yes --dearmor --output "${keyring_tmp}" "${key_tmp}"
+  # The script-wide umask is intentionally 077, but APT drops privileges to
+  # _apt for repository access and must be able to read this public keyring.
+  run_root install -m 0644 "${keyring_tmp}" "${keyring_file}"
+  run_root install -m 0644 "${repository_tmp}" "${repository_file}"
+  run_root rm -f -- "${disabled_repository_file}"
   run_root_network env DEBIAN_FRONTEND=noninteractive apt-get update
   run_root_network env DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
   success "Installed $(caddy version | head -n1)."

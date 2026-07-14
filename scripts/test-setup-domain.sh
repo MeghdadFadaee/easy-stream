@@ -31,5 +31,7 @@ write_caddy_config "${fixture}/Caddyfile"
 grep -q '^es\.mvphub\.ir {$' "${fixture}/Caddyfile" || fail 'Domain missing from Caddyfile'
 grep -q $'^\treverse_proxy 127\.0\.0\.1:8080$' "${fixture}/Caddyfile" || fail 'Upstream missing from Caddyfile'
 grep -q $'^\temail admin@mvphub\.ir$' "${fixture}/Caddyfile" || fail 'Email missing from Caddyfile'
+grep -q 'install -m 0644 "${keyring_tmp}" "${keyring_file}"' "${TEST_DIR}/setup-domain.sh" \
+  || fail 'APT keyring readability protection is missing'
 
 printf 'setup-domain helper tests: ok\n'
