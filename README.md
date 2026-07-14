@@ -66,7 +66,13 @@ bash scripts/setup-ubuntu.sh
 
 The script installs Docker Engine and the Compose plugin from Docker's official apt repository, asks which host address may expose port 8080 (loopback by default), creates the writable host directories for UID/GID 1000, backs up an existing `.env`, writes the replacement with mode `0600`, validates the rendered Compose configuration, and asks before building or starting containers. Use `--no-start` to configure without launching, or `--skip-docker-install` when a supported Docker installation already exists.
 
-It does not configure DNS, TLS certificates, CDN edge authorization, origin firewall rules, archive mounts, or backups. Complete those production gates separately.
+If you decline the offered Caddy step, the main bootstrap leaves DNS, TLS termination, and inbound firewall configuration untouched. CDN edge authorization, archive mounts, and backups remain separate production gates in either case.
+
+To publish an already-running installation, use the separate domain bootstrap. It installs Caddy, configures automatic HTTPS, and proxies the public hostname to the loopback-only gateway:
+
+```sh
+bash scripts/setup-domain.sh
+```
 
 ### Manual alternative
 

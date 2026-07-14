@@ -24,6 +24,16 @@ The Docker build pins pnpm and gives npm downloads bounded retries and a five-mi
 
 When outbound access requires a proxy, enter its URL during setup. A proxy listening on host loopback, such as `http://127.0.0.1:8118`, automatically selects host networking for Dockerfile `RUN` steps so that loopback resolves to the server. Proxy values are passed through Docker's predefined build arguments and are not persisted in the resulting images. This setting affects build downloads only; image pulls still use the Docker daemon's own proxy configuration.
 
+## Public domain and HTTPS
+
+The Compose gateway intentionally listens only on `127.0.0.1:8080`. Publish an existing installation with:
+
+```sh
+bash scripts/setup-domain.sh
+```
+
+The interactive script installs Caddy from its official Ubuntu repository, verifies the local gateway, preserves the previous Caddyfile, validates the replacement, configures automatic HTTPS, and offers to open TCP 80/443 when UFW is active. If the host needs an outbound proxy for ACME requests, the script adds a Caddy-specific systemd override while keeping `127.0.0.1` in `NO_PROXY` for the local upstream. DNS and any cloud-provider firewall still need to point/allow traffic to the server.
+
 ## Host layout
 
 - `/srv/easy-stream/archive`: read-only archive mount

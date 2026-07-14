@@ -17,4 +17,7 @@ jobs:
       - run: corepack pnpm typecheck
       - run: corepack pnpm test
       - run: corepack pnpm build
-      - run: bash -n scripts/setup-ubuntu.sh && bash scripts/test-setup-ubuntu.sh
+      - run: bash -n scripts/setup-ubuntu.sh
+      - run: bash scripts/test-setup-ubuntu.sh
+      - run: bash -n scripts/setup-domain.sh
+      - run: bash scripts/test-setup-domain.sh

@@ -718,7 +718,13 @@ main() {
 
   if [[ "${should_start}" == true ]]; then
     start_stack
-    success "Easy Stream is running. Route ${PUBLIC_ORIGIN} through TLS/CDN to this server's port 8080, then open ${PUBLIC_ORIGIN}/admin."
+    success "Easy Stream's loopback gateway is running on port 8080."
+    if confirm 'Configure the public domain and automatic HTTPS with Caddy now?' yes; then
+      EASY_STREAM_DOMAIN_ORIGIN="${PUBLIC_ORIGIN}" \
+      EASY_STREAM_ADMIN_EMAIL="${ADMIN_BOOTSTRAP_EMAIL}" \
+      EASY_STREAM_OUTBOUND_PROXY="${BUILD_HTTP_PROXY}" \
+        bash "${PROJECT_ROOT}/scripts/setup-domain.sh"
+    fi
   else
     info 'Configuration is complete; the stack was not started'
     local docker_prefix=''
