@@ -1,15 +1,32 @@
 FROM node:24-bookworm-slim AS build
 
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
+ARG PNPM_VERSION=11.13.0
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000
 WORKDIR /workspace
-RUN corepack enable
+
+# Corepack's downloader has a fixed, short connection timeout and no retry,
+# which makes first builds fragile on distant or temporarily congested npm
+# routes. npm honors the retry/timeout settings above; keep the version pinned.
+RUN --mount=type=cache,id=easy-stream-npm,target=/root/.npm \
+    npm install --global "pnpm@${PNPM_VERSION}" \
+    && test "$(pnpm --version)" = "${PNPM_VERSION}"
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/worker/package.json ./apps/worker/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/database/package.json ./packages/database/package.json
+COPY packages/media/package.json ./packages/media/package.json
+RUN --mount=type=cache,id=easy-stream-pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
 COPY apps ./apps
 COPY packages ./packages
-RUN corepack pnpm install --frozen-lockfile
-RUN corepack pnpm build
+RUN pnpm -r --if-present build
 
 FROM node:24-bookworm-slim AS ffmpeg-build
 ARG FFMPEG_VERSION=8.1.2

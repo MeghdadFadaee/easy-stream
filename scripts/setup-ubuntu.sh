@@ -137,6 +137,16 @@ validate_bind_address() {
   done
 }
 
+validate_optional_proxy() {
+  local value="$1"
+  [[ -n "${value}" ]] || return 0
+  validate_env_string "${value}" || return 1
+  if [[ ! "${value}" =~ ^https?://[^[:space:]]+$ ]]; then
+    validation_failure 'Use an http:// or https:// proxy URL, or leave it blank.'
+    return 1
+  fi
+}
+
 validate_absolute_path() {
   local value="$1"
   if [[ "${value}" != /* ]]; then
@@ -514,6 +524,10 @@ EOF
   write_env_pair "${temporary}" PUBLIC_ORIGIN "${PUBLIC_ORIGIN}"
   write_env_pair "${temporary}" MEDIA_PUBLIC_BASE_URL "${PUBLIC_ORIGIN}/media"
   write_env_pair "${temporary}" GATEWAY_BIND_ADDRESS "${GATEWAY_BIND_ADDRESS}"
+  write_env_pair "${temporary}" BUILD_HTTP_PROXY "${BUILD_HTTP_PROXY}"
+  write_env_pair "${temporary}" BUILD_HTTPS_PROXY "${BUILD_HTTPS_PROXY}"
+  write_env_pair "${temporary}" BUILD_NO_PROXY "${BUILD_NO_PROXY}"
+  write_env_pair "${temporary}" DOCKER_BUILD_NETWORK "${DOCKER_BUILD_NETWORK}"
   write_env_pair "${temporary}" ARCHIVE_ROOT "${ARCHIVE_ROOT}"
   write_env_pair "${temporary}" CACHE_ROOT "${CACHE_ROOT}"
   write_env_pair "${temporary}" DERIVED_ROOT "${DERIVED_ROOT}"
@@ -579,6 +593,13 @@ collect_configuration() {
   info 'Production values (secrets are hidden and never printed)'
   prompt_value PUBLIC_ORIGIN 'Public HTTPS origin' '' validate_origin
   prompt_value GATEWAY_BIND_ADDRESS 'Gateway host bind address' '127.0.0.1' validate_bind_address
+  prompt_value BUILD_HTTP_PROXY 'Outbound HTTP(S) proxy for image builds (optional)' '' validate_optional_proxy
+  BUILD_HTTPS_PROXY="${BUILD_HTTP_PROXY}"
+  BUILD_NO_PROXY='localhost,127.0.0.1'
+  DOCKER_BUILD_NETWORK=default
+  if [[ "${BUILD_HTTP_PROXY}" =~ ^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?/?$ ]]; then
+    DOCKER_BUILD_NETWORK=host
+  fi
 
   local archive_input
   prompt_value archive_input 'Archive directory' '/srv/easy-stream/archive' validate_absolute_path
@@ -655,6 +676,7 @@ JIT concurrency:     ${JIT_REMUX_CONCURRENCY}
 Playback TTL:        ${PLAYBACK_TTL_SECONDS} seconds
 Administrator:       ${ADMIN_BOOTSTRAP_EMAIL}
 TMDB enabled:        ${TMDB_COMMERCIAL_LICENSE_CONFIRMED}
+Build proxy:         $([[ -n "${BUILD_HTTP_PROXY}" ]] && printf 'enabled (%s network)' "${DOCKER_BUILD_NETWORK}" || printf 'disabled')
 Secrets:             hidden (generated values are stored only in .env)
 EOF
   printf '\nThis script does not configure DNS, TLS, CDN authorization, or a firewall.\n'

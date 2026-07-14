@@ -1,5 +1,13 @@
 name: easy-stream
 
+x-build-proxy: &build-proxy
+  HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+  HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1}
+  http_proxy: ${BUILD_HTTP_PROXY:-}
+  https_proxy: ${BUILD_HTTPS_PROXY:-}
+  no_proxy: ${BUILD_NO_PROXY:-localhost,127.0.0.1}
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -37,6 +45,8 @@ services:
       context: .
       dockerfile: infra/docker/node.Dockerfile
       target: api
+      network: ${DOCKER_BUILD_NETWORK:-default}
+      args: *build-proxy
     command: ["./node_modules/.bin/drizzle-kit", "migrate", "--config", "drizzle.config.ts"]
     working_dir: /app/packages/database
     environment:
@@ -59,6 +69,8 @@ services:
       context: .
       dockerfile: infra/docker/node.Dockerfile
       target: api
+      network: ${DOCKER_BUILD_NETWORK:-default}
+      args: *build-proxy
     restart: unless-stopped
     init: true
     env_file: .env
@@ -104,6 +116,8 @@ services:
       context: .
       dockerfile: infra/docker/node.Dockerfile
       target: worker
+      network: ${DOCKER_BUILD_NETWORK:-default}
+      args: *build-proxy
     restart: unless-stopped
     init: true
     environment:
@@ -150,6 +164,8 @@ services:
       context: .
       dockerfile: infra/docker/node.Dockerfile
       target: gateway
+      network: ${DOCKER_BUILD_NETWORK:-default}
+      args: *build-proxy
     restart: unless-stopped
     ports:
       - "${GATEWAY_BIND_ADDRESS:-0.0.0.0}:8080:8080"

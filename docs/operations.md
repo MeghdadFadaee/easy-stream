@@ -12,6 +12,18 @@ The bootstrap uses Docker's signed Ubuntu apt repository, prompts for production
 
 The script intentionally does not add the operator to the `docker` group because that group grants root-equivalent privileges. It uses `sudo` for Docker when needed. It also leaves DNS, HTTPS termination, CDN authorization, firewall policy, storage mounting, and backup automation to the operator.
 
+If the initial image build is interrupted by a temporary registry or network failure, the configuration and generated `.env` remain valid. After the connection recovers, resume without rerunning setup:
+
+```sh
+docker compose --env-file .env build
+docker compose --env-file .env up -d
+docker compose --env-file .env ps
+```
+
+The Docker build pins pnpm and gives npm downloads bounded retries and a five-minute request timeout. BuildKit caches the npm and pnpm stores between attempts, so successfully downloaded packages are reused.
+
+When outbound access requires a proxy, enter its URL during setup. A proxy listening on host loopback, such as `http://127.0.0.1:8118`, automatically selects host networking for Dockerfile `RUN` steps so that loopback resolves to the server. Proxy values are passed through Docker's predefined build arguments and are not persisted in the resulting images. This setting affects build downloads only; image pulls still use the Docker daemon's own proxy configuration.
+
 ## Host layout
 
 - `/srv/easy-stream/archive`: read-only archive mount

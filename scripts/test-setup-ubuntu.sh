@@ -38,6 +38,11 @@ expect_valid validate_bind_address '127.0.0.1'
 expect_valid validate_bind_address '10.10.0.12'
 expect_invalid validate_bind_address '999.10.0.12'
 expect_invalid validate_bind_address 'localhost'
+expect_valid validate_optional_proxy ''
+expect_valid validate_optional_proxy 'http://127.0.0.1:8118'
+expect_valid validate_optional_proxy 'https://proxy.example.com:8443'
+expect_invalid validate_optional_proxy '127.0.0.1:8118'
+expect_invalid validate_optional_proxy 'socks5://127.0.0.1:1080'
 
 expect_valid validate_postgres_password 'safe_database_password_1234'
 expect_invalid validate_postgres_password 'short'
@@ -68,6 +73,10 @@ EASY_STREAM_PROJECT_ROOT="${fixture}" bash -c '
   source "$1"
   PUBLIC_ORIGIN=https://stream.example.com
   GATEWAY_BIND_ADDRESS=127.0.0.1
+  BUILD_HTTP_PROXY=http://127.0.0.1:8118
+  BUILD_HTTPS_PROXY=http://127.0.0.1:8118
+  BUILD_NO_PROXY=localhost,127.0.0.1
+  DOCKER_BUILD_NETWORK=host
   POSTGRES_PASSWORD=safe_database_password_1234
   ARCHIVE_ROOT=/srv/easy-stream/archive
   CACHE_ROOT=/srv/easy-stream/cache
@@ -98,6 +107,8 @@ EASY_STREAM_PROJECT_ROOT="${fixture}" bash -c '
   grep -q "^PUBLIC_ORIGIN='"'"'https://stream.example.com'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
   grep -q "^MEDIA_PUBLIC_BASE_URL='"'"'https://stream.example.com/media'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
   grep -q "^GATEWAY_BIND_ADDRESS='"'"'127.0.0.1'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
+  grep -q "^BUILD_HTTP_PROXY='"'"'http://127.0.0.1:8118'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
+  grep -q "^DOCKER_BUILD_NETWORK='"'"'host'"'"'$" "$EASY_STREAM_PROJECT_ROOT/.env"
   cp "$EASY_STREAM_PROJECT_ROOT/.env" "$EASY_STREAM_PROJECT_ROOT/expected.env"
   PUBLIC_ORIGIN=https://new.example.com
   write_environment >/dev/null
