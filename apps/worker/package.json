@@ -1,0 +1,31 @@
+{
+  "name": "@easy-stream/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p ../../packages/contracts/tsconfig.json && tsc -p ../../packages/media/tsconfig.json && tsc -p ../../packages/database/tsconfig.json && tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p ../../packages/contracts/tsconfig.json && tsc -p ../../packages/media/tsconfig.json && tsc -p ../../packages/database/tsconfig.json && vitest run",
+    "dev": "tsx watch src/cli.ts work",
+    "scan": "tsx src/cli.ts scan",
+    "package": "tsx src/cli.ts package",
+    "prepare:media": "tsx src/cli.ts prepare",
+    "work": "tsx src/cli.ts work",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@easy-stream/contracts": "workspace:*",
+    "@easy-stream/database": "workspace:*",
+    "@easy-stream/media": "workspace:*",
+    "@sinclair/typebox": "^0.34.41",
+    "bullmq": "^5.61.2",
+    "ioredis": "^5.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

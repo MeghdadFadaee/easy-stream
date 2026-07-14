@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    "paths": {
+      "@easy-stream/contracts": ["packages/contracts/dist/index.d.ts"],
+      "@easy-stream/database": ["packages/database/dist/index.d.ts"],
+      "@easy-stream/media": ["packages/media/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

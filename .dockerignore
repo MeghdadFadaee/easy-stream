@@ -1,0 +1,14 @@
+.git
+.github
+.DS_Store
+.env
+movies
+data
+cache
+derived
+node_modules
+**/node_modules
+**/dist
+coverage
+playwright-report
+test-results

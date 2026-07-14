@@ -1,0 +1,17 @@
+movies/
+.DS_Store
+.idea/
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+data/
+cache/
+derived/
+*.log
+*.tsbuildinfo
+playwright-report/
+test-results/

@@ -1,0 +1,23 @@
+{
+  "name": "easy-stream",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "corepack pnpm -r --if-present build",
+    "dev": "corepack pnpm --parallel --filter @easy-stream/api --filter @easy-stream/worker --filter @easy-stream/web dev",
+    "test": "corepack pnpm -r --if-present test",
+    "typecheck": "corepack pnpm -r --if-present typecheck",
+    "scan:samples": "corepack pnpm --filter @easy-stream/worker scan -- --root ./movies --output ./data/metadata/catalog.json --inventory-output ./data/metadata/inventory.json",
+    "migrate": "corepack pnpm --filter @easy-stream/database migrate",
+    "clean": "corepack pnpm -r --if-present clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

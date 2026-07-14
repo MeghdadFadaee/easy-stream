@@ -1,0 +1,177 @@
+name: easy-stream
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: easy_stream
+      POSTGRES_USER: easy_stream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easy_stream -d easy_stream"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: api
+    command: ["./node_modules/.bin/drizzle-kit", "migrate", "--config", "drizzle.config.ts"]
+    working_dir: /app/packages/database
+    environment:
+      DATABASE_URL: postgres://easy_stream:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/easy_stream
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: api
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REPOSITORY_DRIVER: postgres
+      DATABASE_URL: postgres://easy_stream:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/easy_stream
+      REDIS_URL: redis://redis:6379
+      METADATA_ROOT: /data/metadata
+      CATALOG_SNAPSHOT_PATH: /data/metadata/catalog.json
+      PACKAGE_REGISTRY_PATH: /data/metadata/package-registry.json
+      CACHE_ROOT: /data/cache
+      # Use the same Compose interpolation source as the gateway. Values from
+      # env_file alone can diverge when operators use --env-file or shell
+      # overrides, which would make every media authorization request fail.
+      MEDIA_AUTH_SHARED_SECRET: ${MEDIA_AUTH_SHARED_SECRET:?set MEDIA_AUTH_SHARED_SECRET in .env}
+    volumes:
+      - ${METADATA_ROOT:-./data/metadata}:/data/metadata:ro
+      - ${CACHE_ROOT:-./data/cache}:/data/cache:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - edge
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: worker
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://easy_stream:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/easy_stream
+      REDIS_URL: redis://redis:6379
+      ARCHIVE_ROOT: /archive
+      CACHE_ROOT: /data/cache
+      DERIVED_ROOT: /data/derived
+      METADATA_ROOT: /data/metadata
+      CATALOG_SNAPSHOT_PATH: /data/metadata/catalog.json
+      INVENTORY_SNAPSHOT_PATH: /data/metadata/inventory.json
+      PACKAGE_REGISTRY_PATH: /data/metadata/package-registry.json
+      FFMPEG_PATH: /opt/ffmpeg/bin/ffmpeg
+      FFPROBE_PATH: /opt/ffmpeg/bin/ffprobe
+      PLAYBACK_PROFILE: ${PLAYBACK_PROFILE:-cmaf-v1}
+      PLAYBACK_TTL_SECONDS: ${PLAYBACK_TTL_SECONDS:-14400}
+      CACHE_MAX_BYTES: ${CACHE_MAX_BYTES:-2147483648000}
+      CACHE_HIGH_WATERMARK: ${CACHE_HIGH_WATERMARK:-0.85}
+      CACHE_LOW_WATERMARK: ${CACHE_LOW_WATERMARK:-0.75}
+      MEDIA_WORKER_CONCURRENCY: ${JIT_REMUX_CONCURRENCY:-2}
+    volumes:
+      - ${ARCHIVE_ROOT:-./movies}:/archive:ro
+      - ${CACHE_ROOT:-./data/cache}:/data/cache
+      - ${DERIVED_ROOT:-./data/derived}:/data/derived
+      - ${METADATA_ROOT:-./data/metadata}:/data/metadata
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  gateway:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-0.0.0.0}:8080:8080"
+    environment:
+      MEDIA_AUTH_SHARED_SECRET: ${MEDIA_AUTH_SHARED_SECRET:?set MEDIA_AUTH_SHARED_SECRET in .env}
+    volumes:
+      - ${CACHE_ROOT:-./data/cache}:/srv/easy-stream/cache:ro
+      - ${DERIVED_ROOT:-./data/derived}:/srv/easy-stream/derived:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+      - edge
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  backend:
+    internal: true
+  edge:

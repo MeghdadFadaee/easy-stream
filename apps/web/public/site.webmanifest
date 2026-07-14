@@ -1,0 +1,20 @@
+{
+  "name": "Easy Stream",
+  "short_name": "Easy Stream",
+  "description": "Your movie archive, ready to stream.",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070a12",
+  "theme_color": "#111722",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
