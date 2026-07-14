@@ -10,8 +10,7 @@ WORKDIR /workspace
 # Corepack's downloader has a fixed, short connection timeout and no retry,
 # which makes first builds fragile on distant or temporarily congested npm
 # routes. npm honors the retry/timeout settings above; keep the version pinned.
-RUN --mount=type=cache,id=easy-stream-npm,target=/root/.npm \
-    npm install --global "pnpm@${PNPM_VERSION}" \
+RUN npm install --global "pnpm@${PNPM_VERSION}" \
     && test "$(pnpm --version)" = "${PNPM_VERSION}"
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -21,8 +20,7 @@ COPY apps/worker/package.json ./apps/worker/package.json
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/media/package.json ./packages/media/package.json
-RUN --mount=type=cache,id=easy-stream-pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 COPY apps ./apps
 COPY packages ./packages
