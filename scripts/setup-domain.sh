@@ -123,6 +123,24 @@ domain_from_origin() {
   printf '%s\n' "${authority}"
 }
 
+proxy_from_systemd_environment() {
+  local environment="$1"
+  if [[ " ${environment} " =~ [[:space:]]HTTPS_PROXY=([^[:space:]]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  elif [[ " ${environment} " =~ [[:space:]]HTTP_PROXY=([^[:space:]]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
+}
+
+detect_docker_proxy() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  local environment
+  environment="$(systemctl show docker.service --property=Environment --value 2>/dev/null || true)"
+  proxy_from_systemd_environment "${environment}"
+}
+
 initialize_privilege() {
   if ((EUID == 0)); then
     ROOT_COMMAND=()
@@ -308,6 +326,9 @@ main() {
   default_domain="$(domain_from_origin "${origin}" 2>/dev/null || true)"
   default_email="${EASY_STREAM_ADMIN_EMAIL:-$(read_env_value ADMIN_BOOTSTRAP_EMAIL || true)}"
   default_proxy="${EASY_STREAM_OUTBOUND_PROXY:-$(read_env_value BUILD_HTTP_PROXY || true)}"
+  if [[ -z "${default_proxy}" ]]; then
+    default_proxy="$(detect_docker_proxy || true)"
+  fi
 
   info 'Public domain and automatic HTTPS'
   prompt_value DOMAIN 'Public domain' "${default_domain}" validate_domain
@@ -325,8 +346,10 @@ main() {
   write_proxy_override
   install_configuration
   configure_firewall
-  run_root systemctl enable --now caddy.service
-  run_root systemctl reload caddy.service
+  run_root systemctl enable caddy.service
+  # A reload applies the Caddyfile but retains the running process environment.
+  # Restart so a newly installed systemd proxy override is actually inherited.
+  run_root systemctl restart caddy.service
   success "Caddy is active. Open https://${DOMAIN}/ and https://${DOMAIN}/admin."
   printf 'Certificate status: journalctl -u caddy --since "10 minutes ago" --no-pager\n'
 }

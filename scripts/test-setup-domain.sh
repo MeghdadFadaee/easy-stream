@@ -22,6 +22,11 @@ expect_valid validate_optional_proxy 'http://127.0.0.1:8118'
 expect_invalid validate_optional_proxy 'socks5://127.0.0.1:1080'
 [[ "$(domain_from_origin 'https://es.mvphub.ir')" == 'es.mvphub.ir' ]] || fail 'Origin parsing failed'
 if domain_from_origin 'https://es.mvphub.ir:8443' >/dev/null 2>&1; then fail 'Custom origin port was accepted'; fi
+[[ "$(proxy_from_systemd_environment 'HTTP_PROXY=http://127.0.0.1:8118 HTTPS_PROXY=http://127.0.0.1:8118 NO_PROXY=localhost')" == 'http://127.0.0.1:8118' ]] \
+  || fail 'Docker systemd proxy detection failed'
+if proxy_from_systemd_environment 'NO_PROXY=localhost,127.0.0.1' >/dev/null 2>&1; then
+  fail 'A missing Docker proxy was accepted'
+fi
 
 fixture="$(mktemp -d)"
 trap 'rm -rf -- "${fixture}"' EXIT
@@ -33,5 +38,7 @@ grep -q $'^\treverse_proxy 127\.0\.0\.1:8080$' "${fixture}/Caddyfile" || fail 'U
 grep -q $'^\temail admin@mvphub\.ir$' "${fixture}/Caddyfile" || fail 'Email missing from Caddyfile'
 grep -q 'install -m 0644 "${keyring_tmp}" "${keyring_file}"' "${TEST_DIR}/setup-domain.sh" \
   || fail 'APT keyring readability protection is missing'
+grep -q 'systemctl restart caddy.service' "${TEST_DIR}/setup-domain.sh" \
+  || fail 'Caddy restart required for proxy inheritance is missing'
 
 printf 'setup-domain helper tests: ok\n'
