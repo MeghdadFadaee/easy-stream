@@ -61,6 +61,12 @@ const fa = {
   unavailable: 'ناموجود',
   unsupported: 'پشتیبانی‌نشده',
   year: 'سال',
+  quality: 'کیفیت',
+  browse: 'مرور',
+  browseAll: 'مشاهده همه',
+  allYears: 'همه سال‌ها',
+  releaseWindow: 'بازه انتشار',
+  allSeasons: 'همه فصل‌ها',
 } as const
 
 const en: Record<keyof typeof fa, string> = {
@@ -122,6 +128,12 @@ const en: Record<keyof typeof fa, string> = {
   unavailable: 'Unavailable',
   unsupported: 'Unsupported',
   year: 'Year',
+  quality: 'Quality',
+  browse: 'Browse',
+  browseAll: 'Browse all',
+  allYears: 'All years',
+  releaseWindow: 'Release season',
+  allSeasons: 'All seasons',
 }
 
 export type TranslationKey = keyof typeof fa

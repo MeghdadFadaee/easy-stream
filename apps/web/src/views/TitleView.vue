@@ -31,6 +31,7 @@ function playTitle() {
   if (!detail.value || !mediaItemId) return
   player.play({
     mediaItemId,
+    ...(detail.value.variants.length ? { variants: detail.value.variants } : {}),
     title: title.value,
     ...(detail.value.posterUrl ? { posterUrl: detail.value.posterUrl } : {}),
   })
@@ -39,6 +40,7 @@ function playTitle() {
 function playEpisode(episode: EpisodeItem) {
   player.play({
     mediaItemId: episode.mediaItemId,
+    ...(episode.variants.length ? { variants: episode.variants } : {}),
     title: `${title.value} · ${t('episode')} ${episode.number}`,
     ...(episode.posterUrl ? { posterUrl: episode.posterUrl } : {}),
   })

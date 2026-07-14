@@ -4,7 +4,15 @@ import { deterministicUuid, parseMediaIdentity, shouldInspectSubtitleContent, sl
 describe('catalog filename parsing', () => {
   it('groups the supplied season folder and episode filename', () => {
     expect(parseMediaIdentity('Mushoku Tensei S3/Mushoku Tensei S3 - 01.[SS][720p][MixFlixTop].mkv'))
-      .toEqual({ kind: 'SERIES', title: 'Mushoku Tensei', seasonNumber: 3, episodeNumber: 1, episodeTitle: 'Episode 1' });
+      .toEqual({ kind: 'SERIES', title: 'Mushoku Tensei', seasonNumber: 3, episodeNumber: 1, episodeTitle: 'Episode 1', titleDirectory: 'Mushoku Tensei S3' });
+  });
+
+  it('uses the title above a nested quality folder and derives archive taxonomy', () => {
+    expect(parseMediaIdentity('anime/2026/Summer/Mushoku Tensei S3/720/Mushoku Tensei S3 - 02.mkv'))
+      .toMatchObject({
+        kind: 'SERIES', title: 'Mushoku Tensei', seasonNumber: 3, episodeNumber: 2,
+        category: 'Anime', categorySlug: 'anime', year: 2026, releaseWindow: 'SUMMER',
+      });
   });
 
   it('creates stable UUIDs and Unicode-safe slugs', () => {

@@ -12,6 +12,22 @@ import {
 } from '../src/registry.js';
 
 describe('local generation registry', () => {
+  it('keeps independent generations for quality variants of one episode', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'easy-stream-registry-variants-'));
+    const registryPath = path.join(directory, 'package-registry.json');
+    const mediaItemId = '11111111-1111-4111-8111-111111111111';
+    for (const [variantId, generationId] of [
+      ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'],
+      ['44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555'],
+    ] as const) {
+      await updateRegistry(registryPath, mediaItemId, {
+        mediaItemId, variantId, generationId, state: 'READY', playable: true,
+        manifestPath: `/media/generations/${generationId}/master.m3u8`,
+      });
+    }
+    expect((await readRegistry(registryPath)).packages).toHaveLength(2);
+  });
+
   it('atomically records API-loadable per-media status', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'easy-stream-registry-'));
     const registryPath = path.join(directory, 'package-registry.json');

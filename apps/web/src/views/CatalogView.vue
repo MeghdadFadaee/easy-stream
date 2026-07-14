@@ -8,15 +8,16 @@ import { useSpatialNavigation } from '@/composables/spatial-navigation'
 import { useI18n } from '@/i18n'
 import { listProgress } from '@/storage/viewer-db'
 import { usePlayerStore } from '@/stores/player'
-import type { CatalogItem } from '@/types'
+import type { CatalogItem, CatalogSection } from '@/types'
 
 const root = ref<HTMLElement | null>(null)
-const items = ref<CatalogItem[]>([])
+const sections = ref<CatalogSection[]>([])
 const progress = ref<Record<string, number>>({})
 const loading = ref(true)
 const error = ref('')
 const { localize, t } = useI18n()
 const player = usePlayerStore()
+const items = computed(() => sections.value.flatMap((section) => section.items))
 const featured = computed(() => items.value.find((item) => item.playable) ?? items.value[0])
 const { restoreFocus } = useSpatialNavigation(root, { restoreKey: 'catalog-focus' })
 
@@ -25,6 +26,7 @@ function playFeatured() {
   if (!item?.playable || !item.mediaItemId) return
   player.play({
     mediaItemId: item.mediaItemId,
+    ...(item.variants.length ? { variants: item.variants } : {}),
     title: localize(item.title, item.slug),
     ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
   })
@@ -34,8 +36,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [catalog, storedProgress] = await Promise.all([api.catalog({ limit: 60 }), listProgress()])
-    items.value = catalog.items
+    const [catalogSections, storedProgress] = await Promise.all([api.catalogSections(12), listProgress()])
+    sections.value = catalogSections
     progress.value = Object.fromEntries(storedProgress.map((entry) => [
       entry.mediaItemId,
       entry.durationSeconds > 0 ? (entry.positionSeconds / entry.durationSeconds) * 100 : 0,
@@ -96,11 +98,16 @@ onMounted(() => void load())
         </div>
       </section>
 
-      <section class="catalog-section" aria-labelledby="catalog-heading">
-        <h2 id="catalog-heading">{{ t('allTitles') }}</h2>
-        <div class="media-grid">
+      <section v-for="section in sections" :key="section.slug" class="catalog-section">
+        <div class="section-heading">
+          <h2>{{ section.name }}</h2>
+          <RouterLink class="secondary-button focus-ring" data-tv-focus :to="{ name: 'browse', params: { category: section.slug } }">
+            {{ t('browseAll') }}
+          </RouterLink>
+        </div>
+        <div class="media-grid category-rail">
           <MediaCard
-            v-for="item in items"
+            v-for="item in section.items"
             :key="item.id"
             :item="item"
             :progress="progress[item.mediaItemId]"

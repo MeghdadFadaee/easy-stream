@@ -1,6 +1,7 @@
 import type {
   CacheStatus,
   CatalogCard,
+  CatalogSection,
   CatalogQuery,
   Job,
   MetadataCandidate,
@@ -17,7 +18,7 @@ import {
   titles,
   type Database,
 } from '@easy-stream/database';
-import { and, asc, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import type {
   AdminRecord,
   AppRepository,
@@ -44,7 +45,13 @@ export class PostgresRepository implements AppRepository {
     const rows = await this.db
       .select()
       .from(titles)
-      .where(and(eq(titles.published, true), query.kind ? eq(titles.kind, query.kind) : undefined))
+      .where(and(
+        eq(titles.published, true),
+        query.kind ? eq(titles.kind, query.kind) : undefined,
+        query.category ? (query.category === 'other' ? isNull(titles.categorySlug) : eq(titles.categorySlug, query.category)) : undefined,
+        query.year ? eq(titles.releaseYear, query.year) : undefined,
+        query.releaseWindow ? eq(titles.releaseWindow, query.releaseWindow) : undefined,
+      ))
       .orderBy(asc(titles.slug), asc(titles.id))
       .limit(limit + 1)
       .offset(offset);
@@ -54,6 +61,30 @@ export class PostgresRepository implements AppRepository {
       items: cards,
       ...(rows.length > limit ? { nextCursor: encodeOffset(offset + limit) } : {}),
     };
+  }
+
+  async listCatalogSections(limitPerSection: number): Promise<CatalogSection[]> {
+    const rows = await this.db.select().from(titles)
+      .where(eq(titles.published, true))
+      .orderBy(asc(titles.categorySlug), desc(titles.releaseYear), asc(titles.slug));
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const categorySlug = row.categorySlug ?? 'other';
+      const group = groups.get(categorySlug) ?? [];
+      group.push(row);
+      groups.set(categorySlug, group);
+    }
+    const result: CatalogSection[] = [];
+    for (const [slug, group] of groups) {
+      const visible = group.slice(0, limitPerSection);
+      result.push({
+        slug,
+        name: group[0]?.category ?? 'Other',
+        items: await this.cardsForRows(visible),
+        hasMore: group.length > visible.length,
+      });
+    }
+    return result;
   }
 
   async searchTitles(query: SearchQuery): Promise<CatalogCard[]> {
@@ -101,6 +132,14 @@ export class PostgresRepository implements AppRepository {
       durationSeconds: row.media.durationSeconds ?? 0,
       compatibility: row.media.compatibility,
       published: row.media.published && row.titlePublished,
+      variants: (row.media.variants ?? []).map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        ...(variant.height ? { height: variant.height } : {}),
+        compatibility: variant.compatibility as MediaItemForPlayback['compatibility'],
+        available: variant.available,
+        isDefault: variant.isDefault,
+      })),
     };
   }
 
@@ -156,6 +195,7 @@ export class PostgresRepository implements AppRepository {
     await this.db.insert(playbackSessions).values({
       id: session.id,
       mediaItemId: session.mediaItemId,
+      ...(session.variantId ? { variantId: session.variantId } : {}),
       ...(session.generationId ? { generationId: session.generationId } : {}),
       state: session.state,
       capabilities: session.capabilities,
@@ -177,6 +217,7 @@ export class PostgresRepository implements AppRepository {
     return {
       id: row.id,
       mediaItemId: row.mediaItemId,
+      ...(row.variantId ? { variantId: row.variantId } : {}),
       state: row.state,
       capabilities: row.capabilities as StoredPlaybackSession['capabilities'],
       expiresAt: row.expiresAt.toISOString(),
@@ -185,6 +226,7 @@ export class PostgresRepository implements AppRepository {
       ...(row.pollAfterMs ? { pollAfterMs: row.pollAfterMs } : {}),
       ...(details.manifestUrl ? { manifestUrl: details.manifestUrl } : {}),
       ...(details.durationSeconds !== undefined ? { durationSeconds: details.durationSeconds } : {}),
+      ...(details.qualityLabel ? { qualityLabel: details.qualityLabel } : {}),
       ...(details.audioTracks ? { audioTracks: details.audioTracks } : {}),
       ...(details.subtitleTracks ? { subtitleTracks: details.subtitleTracks } : {}),
     };
@@ -196,6 +238,7 @@ export class PostgresRepository implements AppRepository {
       .set({
         state: session.state,
         generationId: session.generationId ?? null,
+        variantId: session.variantId ?? null,
         reasonCode: session.reasonCode ?? null,
         pollAfterMs: session.pollAfterMs ?? null,
         responseJson: publicSessionDetails(session),
@@ -344,7 +387,11 @@ function toCatalogCard(
     ...(title.posterUrl ? { posterUrl: title.posterUrl } : {}),
     ...(title.backdropUrl ? { backdropUrl: title.backdropUrl } : {}),
     ...(title.releaseYear !== null ? { year: title.releaseYear } : {}),
+    ...(title.category ? { category: title.category } : {}),
+    ...(title.categorySlug ? { categorySlug: title.categorySlug } : {}),
+    ...(title.releaseWindow ? { releaseWindow: title.releaseWindow } : {}),
     ...(first ? { resumeMediaItemId: first.id } : {}),
+    ...(first && first.variants.length ? { variants: first.variants as NonNullable<CatalogCard['variants']> } : {}),
   };
 }
 
@@ -387,6 +434,7 @@ function toTitleDetail(
       durationSeconds: item.durationSeconds ?? 0,
       compatibility: item.compatibility,
       published: item.published,
+      variants: item.variants as NonNullable<TitleDetail['mediaItems'][number]['variants']>,
     })),
     updatedAt: title.updatedAt.toISOString(),
   };
@@ -420,6 +468,8 @@ function toJob(job: typeof jobs.$inferSelect): Job {
 
 function publicSessionDetails(session: StoredPlaybackSession): Record<string, unknown> {
   return {
+    ...(session.variantId ? { variantId: session.variantId } : {}),
+    ...(session.qualityLabel ? { qualityLabel: session.qualityLabel } : {}),
     ...(session.manifestUrl ? { manifestUrl: session.manifestUrl } : {}),
     ...(session.durationSeconds !== undefined ? { durationSeconds: session.durationSeconds } : {}),
     ...(session.audioTracks ? { audioTracks: session.audioTracks } : {}),

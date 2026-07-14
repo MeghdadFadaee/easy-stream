@@ -57,6 +57,9 @@ describe('catalog snapshot synchronization', () => {
     const conflicts: Array<{ table: unknown; set: Record<string, unknown> }> = [];
     const transaction = {
       async execute() {},
+      select() {
+        return { from() { return { async where() { return []; } }; } };
+      },
       insert(table: unknown) {
         return {
           values() {
@@ -78,16 +81,18 @@ describe('catalog snapshot synchronization', () => {
     await syncCatalogSnapshot(database, snapshot);
 
     expect(Object.keys(conflicts.find((entry) => entry.table === titles)!.set).sort())
-      .toEqual(['kind', 'slug', 'updatedAt']);
+      .toEqual(['category', 'categorySlug', 'kind', 'posterUrl', 'releaseWindow', 'releaseYear', 'slug', 'updatedAt']);
     expect(Object.keys(conflicts.find((entry) => entry.table === mediaItems)!.set).sort())
       .toEqual([
         'compatibility',
         'durationSeconds',
         'episodeNumber',
         'kind',
+        'logicalKey',
         'seasonNumber',
         'titleId',
         'updatedAt',
+        'variants',
       ]);
   });
 

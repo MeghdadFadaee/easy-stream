@@ -14,6 +14,7 @@ const item: CatalogItem = {
   title: { fa: 'فیلم نمونه', en: 'Sample movie' },
   overview: {},
   playable: true,
+  variants: [],
   year: 2026,
 }
 

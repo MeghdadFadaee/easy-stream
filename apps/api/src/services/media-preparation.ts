@@ -43,24 +43,26 @@ export class FileMediaPreparationService implements MediaPreparationService {
   ) {}
 
   async prepare(input: Parameters<MediaPreparationService['prepare']>[0]) {
-    const status = await this.find(input.mediaItem.id);
+    const status = await this.find(input.mediaItem.id, input.variantId);
+    const requestKey = `${input.mediaItem.id}:${input.variantId ?? 'legacy'}`;
     if (status) {
       if (status.playable || status.state === 'READY' || status.state === 'FAILED') {
-        this.requested.delete(input.mediaItem.id);
+        this.requested.delete(requestKey);
       }
       await this.recordCacheAccess(input, status);
       return status;
     }
-    if (!this.requested.has(input.mediaItem.id)) {
-      this.requested.add(input.mediaItem.id);
+    if (!this.requested.has(requestKey)) {
+      this.requested.add(requestKey);
       try {
         await this.publisher.publish({
           type: 'media.playback.requested',
           sessionId: input.sessionId,
           mediaItemId: input.mediaItem.id,
+          ...(input.variantId ? { variantId: input.variantId } : {}),
         });
       } catch (error) {
-        this.requested.delete(input.mediaItem.id);
+        this.requested.delete(requestKey);
         throw error;
       }
     }
@@ -73,9 +75,10 @@ export class FileMediaPreparationService implements MediaPreparationService {
   }
 
   async getStatus(input: Parameters<MediaPreparationService['getStatus']>[0]) {
-    const status = await this.find(input.mediaItem.id);
+    const status = await this.find(input.mediaItem.id, input.variantId);
+    const requestKey = `${input.mediaItem.id}:${input.variantId ?? 'legacy'}`;
     if (status?.playable || status?.state === 'READY' || status?.state === 'FAILED') {
-      this.requested.delete(input.mediaItem.id);
+      this.requested.delete(requestKey);
     }
     const result = status ?? {
         state: 'PREPARING' as const,
@@ -102,9 +105,10 @@ export class FileMediaPreparationService implements MediaPreparationService {
     });
   }
 
-  private async find(mediaItemId: string): Promise<MediaPreparation | undefined> {
+  private async find(mediaItemId: string, variantId?: string): Promise<MediaPreparation | undefined> {
     const registry = await readPackageRegistry(this.registryPath);
-    const entry = registry?.packages.find((candidate) => candidate.mediaItemId === mediaItemId);
+    const entry = registry?.packages.find((candidate) => candidate.mediaItemId === mediaItemId
+      && (candidate.variantId ?? candidate.mediaItemId) === (variantId ?? mediaItemId));
     if (!entry) return undefined;
     return {
       state: entry.state,
@@ -226,7 +230,7 @@ function redisConnection(redisUrl: string): ConnectionOptions {
 function commandJobId(command: MediaCommand, profile: string): string {
   switch (command.type) {
     case 'media.playback.requested':
-      return `playback-${command.mediaItemId}-${profile}`;
+      return `playback-${command.mediaItemId}-${command.variantId ?? 'legacy'}-${profile}`;
     case 'archive.scan.requested':
       return `scan-${command.jobId}`;
     case 'media.publication.changed':

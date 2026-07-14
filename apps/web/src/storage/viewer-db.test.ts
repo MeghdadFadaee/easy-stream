@@ -18,6 +18,7 @@ describe('viewer storage', () => {
       audioLanguage: 'ja',
       volume: 0.7,
       muted: false,
+      preferredQualityHeight: 1080,
     })
 
     await expect(readPreferences()).resolves.toMatchObject({ uiLanguage: 'en', subtitleLanguage: 'en', volume: 0.7 })

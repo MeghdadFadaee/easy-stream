@@ -42,11 +42,19 @@ corepack pnpm scan:samples
 
 `scan:samples` writes a public `data/metadata/catalog.json` and a private `data/metadata/inventory.json`. Source paths and probe details never enter the public snapshot.
 
+The production scanner also understands categorized, multi-quality archives:
+
+```text
+archive/<category>/<year>/<Spring|Summer|Fall|Winter|Movie>/<title>/<quality>/*.mkv
+```
+
+For example, `anime/2026/Summer/Mushoku Tensei S3/720/...mkv` becomes Anime → Mushoku Tensei → Season 3. Files for the same episode under `480`, `720`, `1080`, or codec-suffixed quality folders become selectable source variants rather than duplicate episodes. A `thumbnail.jpg`, `.jpeg`, `.png`, or `.webp` beside the quality folders is copied to the generated artwork store; the archive itself remains private and read-only. The older `Title S3/*.mkv` layout remains supported.
+
 To package one scanned media item with the locally installed FFmpeg, copy its UUID from `inventory.json` and run:
 
 ```sh
 node apps/worker/dist/cli.js package \
-  --root ./movies \
+  --root ./archive \
   --cache ./data/cache \
   --inventory ./data/metadata/inventory.json \
   --registry ./data/metadata/package-registry.json \
@@ -103,7 +111,7 @@ docker compose exec worker node apps/worker/dist/cli.js prepare \
 
 ## Important v1 boundaries
 
-- There is one representation, not an adaptive-bitrate ladder. A slow connection cannot switch to a lower quality.
+- There is no adaptive-bitrate ladder. Viewers may manually select an available source quality; each selection is packaged independently on demand and never switches automatically.
 - Compatible media still occupies temporary HLS cache space; “no duplication” means no permanent HLS copy for every title.
 - Durable compatibility encoding is intentionally operator-controlled and CPU-limited to one job at a time.
 - TMDB stays disabled until both an API token and explicit commercial-license confirmation are configured.

@@ -167,6 +167,9 @@ export class AdminService {
       const preparation = await this.media.getStatus({
         sessionId: randomUUID(),
         mediaItem: item,
+        variantId: item.variants.find((variant) => variant.available && variant.isDefault)?.id
+          ?? item.variants.find((variant) => variant.available)?.id
+          ?? item.id,
       });
       if (preparation.state !== 'READY' && !preparation.playable) {
         throw new AppError(

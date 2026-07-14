@@ -10,6 +10,8 @@ import {
   CacheStatusSchema,
   CatalogQuerySchema,
   CatalogResponseSchema,
+  CatalogSectionsQuerySchema,
+  CatalogSectionsResponseSchema,
   CreatePlaybackSessionSchema,
   DateTimeSchema,
   ErrorResponseSchema,
@@ -31,6 +33,7 @@ import {
   UuidSchema,
   type AdminLogin,
   type CatalogQuery,
+  type CatalogSectionsQuery,
   type CreatePlaybackSession,
   type MetadataMatchBody,
   type MetadataSearchQuery,
@@ -231,6 +234,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     async (request) => repository.listCatalog(request.query),
+  );
+
+  app.get<{ Querystring: CatalogSectionsQuery }>(
+    '/api/v1/catalog/sections',
+    {
+      schema: {
+        querystring: CatalogSectionsQuerySchema,
+        response: { 200: CatalogSectionsResponseSchema },
+      },
+    },
+    async (request) => ({ sections: await repository.listCatalogSections(request.query.limitPerSection ?? 12) }),
   );
 
   app.get<{ Params: Static<typeof SlugParamsSchema> }>(

@@ -7,6 +7,7 @@ export const ids = {
   generation: '30000000-0000-4000-8000-000000000001',
   audio: '40000000-0000-4000-8000-000000000001',
   subtitle: '50000000-0000-4000-8000-000000000001',
+  variant: '60000000-0000-4000-8000-000000000001',
 };
 
 export const titleFixture: TitleDetail = {
@@ -16,6 +17,11 @@ export const titleFixture: TitleDetail = {
   name: { fa: 'سریال نمونه', en: 'Sample Series' },
   synopsis: { fa: 'خلاصه نمونه', en: 'Sample synopsis' },
   playable: true,
+  category: 'Anime',
+  categorySlug: 'anime',
+  releaseWindow: 'SUMMER',
+  year: 2026,
+  variants: [{ id: ids.variant, label: '720p', width: 1280, height: 720, videoCodec: 'h264', compatibility: 'COPY', available: true, isDefault: true }],
   resumeMediaItemId: ids.media,
   seasons: [{ number: 1, episodeCount: 1 }],
   mediaItems: [
@@ -28,6 +34,7 @@ export const titleFixture: TitleDetail = {
       durationSeconds: 1420,
       compatibility: 'COPY',
       published: true,
+      variants: [{ id: ids.variant, label: '720p', width: 1280, height: 720, videoCodec: 'h264', compatibility: 'COPY', available: true, isDefault: true }],
     },
   ],
   updatedAt: '2026-07-14T00:00:00.000Z',

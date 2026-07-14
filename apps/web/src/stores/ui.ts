@@ -43,5 +43,10 @@ export const useUiStore = defineStore('ui', {
       this.preferences.muted = muted
       await writePreferences({ ...this.preferences })
     },
+
+    async setPreferredQuality(height: number) {
+      this.preferences.preferredQualityHeight = Math.max(1, Math.round(height))
+      await writePreferences({ ...this.preferences })
+    },
   },
 })

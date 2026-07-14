@@ -39,7 +39,7 @@ The interactive script installs Caddy from its official Ubuntu repository, verif
 - `/srv/easy-stream/archive`: read-only archive mount
 - `/srv/easy-stream/cache`: 2 TB NVMe hot package cache
 - `/srv/easy-stream/derived`: persistent compatibility components
-- `/srv/easy-stream/metadata`: extracted subtitles, approved fonts, and cached metadata
+- `/srv/easy-stream/metadata`: snapshots, copied archive artwork, extracted subtitles, approved fonts, and cached metadata
 - Docker named volume `postgres-data`: PostgreSQL data (PostgreSQL 18 layout)
 
 Use a dedicated unprivileged service account. Confirm the archive mount is read-only with `findmnt -no OPTIONS /srv/easy-stream/archive` before starting workers.
@@ -52,6 +52,8 @@ sudo install -d -o 1000 -g 1000 -m 0750 \
   /srv/easy-stream/derived \
   /srv/easy-stream/metadata
 ```
+
+An administrator-initiated scan is authoritative: files no longer present in the mounted archive are removed from the public catalog without deleting historical database rows. After reorganizing archive paths, run a full scan before testing playback. Generated posters are served only from `/srv/easy-stream/metadata/artwork`; the gateway never receives an archive mount.
 
 Use one public HTTPS origin for the SPA, API, and media routes. The v1 playback grant is a host-only, generation-path cookie, so a second media hostname will not receive it. A split hostname requires CDN-native edge authorization instead.
 

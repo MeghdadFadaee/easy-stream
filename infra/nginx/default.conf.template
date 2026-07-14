@@ -99,6 +99,19 @@ server {
         include /etc/nginx/security-headers.conf;
     }
 
+    location /images/archive/ {
+        limit_except GET HEAD { deny all; }
+        alias /srv/easy-stream/metadata/artwork/;
+        disable_symlinks on;
+        types {
+            image/jpeg jpg jpeg;
+            image/png png;
+            image/webp webp;
+        }
+        add_header Cache-Control "public, max-age=86400, stale-while-revalidate=604800" always;
+        include /etc/nginx/security-headers.conf;
+    }
+
     location /healthz {
         access_log off;
         return 200 "ok\n";

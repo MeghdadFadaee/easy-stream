@@ -29,6 +29,7 @@ import {
 import {
   deterministicUuid,
   findMediaItem,
+  findMediaVariant,
   scanArchive,
   type InventorySnapshot,
   type SnapshotMediaItem,
@@ -111,24 +112,27 @@ async function scanCommand(arguments_: Arguments): Promise<void> {
   }
   const result = await scanArchive({
     archiveRoot,
+    ...(output === undefined ? {} : { artworkRoot: path.join(path.dirname(output), 'artwork') }),
     ...(flag(arguments_, 'ffmpeg') === undefined ? {} : { ffmpegPath: flag(arguments_, 'ffmpeg') as string }),
     ...(flag(arguments_, 'ffprobe') === undefined ? {} : { ffprobePath: flag(arguments_, 'ffprobe') as string }),
     onFile(relativePath, current) {
       process.stderr.write(`[scan ${current}] ${relativePath}\n`);
     },
   });
+  // Direct scans stay portable; the long-running worker passes DATABASE_URL explicitly.
+  const databaseUrl = flag(arguments_, 'database');
+  const databaseSync = databaseUrl === undefined
+    ? undefined
+    : await withDatabase(databaseUrl, (database) => syncCatalogSnapshot(database, result.catalog, {
+      authoritative: arguments_.flags.has('full'),
+    }));
+  if (databaseSync) applyMediaIdMap(result, databaseSync.mediaIdMap);
   if (output !== undefined) {
     await Promise.all([
       writeJsonAtomic(output, result.catalog),
       ...(inventoryOutput === undefined ? [] : [writeJsonAtomic(inventoryOutput, result.inventory)]),
     ]);
   }
-
-  // Direct scans stay portable; the long-running worker passes DATABASE_URL explicitly.
-  const databaseUrl = flag(arguments_, 'database');
-  const databaseSync = databaseUrl === undefined
-    ? undefined
-    : await withDatabase(databaseUrl, (database) => syncCatalogSnapshot(database, result.catalog));
 
   if (output === undefined) process.stdout.write(`${JSON.stringify(result.catalog, null, 2)}\n`);
   else {
@@ -137,8 +141,23 @@ async function scanCommand(arguments_: Arguments): Promise<void> {
       ...(inventoryOutput === undefined ? {} : { inventoryOutput: path.resolve(inventoryOutput) }),
       titles: result.catalog.titles.length,
       mediaItems: result.catalog.titles.reduce((sum, item) => sum + item.mediaItems.length, 0),
-      ...(databaseSync === undefined ? {} : { databaseSync }),
+      ...(databaseSync === undefined ? {} : { databaseSync: { titlesSeen: databaseSync.titlesSeen, mediaItemsSeen: databaseSync.mediaItemsSeen } }),
     })}\n`);
+  }
+}
+
+function applyMediaIdMap(result: Awaited<ReturnType<typeof scanArchive>>, mediaIdMap: Record<string, string>): void {
+  for (const title of result.inventory.items) {
+    for (const media of title.mediaItems) media.id = mediaIdMap[media.id] ?? media.id;
+    title.mediaItemId = mediaIdMap[title.mediaItemId] ?? title.mediaItemId;
+    title.resumeMediaItemId = mediaIdMap[title.resumeMediaItemId] ?? title.resumeMediaItemId;
+    for (const season of title.seasons) {
+      for (const media of season.episodes) media.id = mediaIdMap[media.id] ?? media.id;
+    }
+  }
+  for (const title of result.catalog.titles) {
+    if (title.resumeMediaItemId) title.resumeMediaItemId = mediaIdMap[title.resumeMediaItemId] ?? title.resumeMediaItemId;
+    for (const media of title.mediaItems) media.id = mediaIdMap[media.id] ?? media.id;
   }
 }
 
@@ -163,8 +182,9 @@ async function loadInventory(snapshotPath: string): Promise<InventorySnapshot> {
 async function sourceSelection(
   arguments_: Arguments,
   archiveRoot: string,
-): Promise<{ media: SnapshotMediaItem; sourcePath: string }> {
+): Promise<{ media: SnapshotMediaItem; sourcePath: string; variantId: string }> {
   const mediaItem = flag(arguments_, 'media-item');
+  const variantId = flag(arguments_, 'variant-id');
   const requestedSource = flag(arguments_, 'source');
   const inventoryPath = flag(arguments_, 'inventory', './data/inventory.json') ?? './data/inventory.json';
   let inventory: InventorySnapshot | undefined;
@@ -175,9 +195,14 @@ async function sourceSelection(
   }
   const selected = mediaItem === undefined
     ? (requestedSource === undefined ? undefined : inventory === undefined ? undefined : findMediaItem(inventory, requestedSource))
-    : inventory === undefined ? undefined : findMediaItem(inventory, mediaItem);
+    : inventory === undefined ? undefined : findMediaVariant(inventory, mediaItem, variantId);
   if (selected !== undefined) {
-    return { media: selected, sourcePath: await resolveInside(archiveRoot, path.join(archiveRoot, selected.sourcePath)) };
+    const selectedVariantId = selected.variants?.find((variant) => variant.sourcePath === selected.sourcePath)?.id ?? selected.id;
+    return {
+      media: selected,
+      variantId: selectedVariantId,
+      sourcePath: await resolveInside(archiveRoot, path.join(archiveRoot, selected.sourcePath)),
+    };
   }
   if (mediaItem !== undefined) throw new Error(`Media item was not found in ${inventoryPath}: ${mediaItem}`);
   if (requestedSource === undefined) throw new Error('package requires --media-item ID or --source PATH');
@@ -192,12 +217,17 @@ async function sourceSelection(
   const classification = classifyMedia(probe);
   return {
     sourcePath,
+    variantId: deterministicUuid(`variant:${relative}`),
     media: {
       id: deterministicUuid(`media:${relative}`),
       titleId: deterministicUuid(`title:${relative}`),
       kind: 'MOVIE',
       sourcePath: relative,
       durationSeconds: Number(probe.format.duration) || 0,
+      qualityLabel: probe.streams.find((stream) => stream.codec_type === 'video')?.height
+        ? `${probe.streams.find((stream) => stream.codec_type === 'video')?.height}p`
+        : 'Source',
+      available: ['COPY', 'AUDIO_TRANSCODE'].includes(classification.class),
       title: { en: path.basename(relative, path.extname(relative)) },
       published: ['COPY', 'AUDIO_TRANSCODE'].includes(classification.class),
       compatibility: classification.class,
@@ -232,6 +262,7 @@ async function packageCommand(arguments_: Arguments, runtime: CommandRuntime): P
   const preparing = async (error?: string): Promise<void> => {
     await updateRegistry(registryPath, selected.media.id, {
       mediaItemId: selected.media.id,
+      variantId: selected.variantId,
       generationId,
       state: error === undefined ? 'PREPARING' : 'FAILED',
       playable: false,
@@ -304,6 +335,7 @@ async function packageCommand(arguments_: Arguments, runtime: CommandRuntime): P
   const fontUrls = fonts.map((font) => `/media/${generationPath}/fonts/${font.sha256}.${font.format}`);
   await updateRegistry(registryPath, selected.media.id, {
     mediaItemId: selected.media.id,
+    variantId: selected.variantId,
     generationId,
     state: 'READY',
     playable: true,
@@ -378,6 +410,7 @@ async function prepareCommand(arguments_: Arguments): Promise<void> {
   const generationId = deterministicUuid(`generation:compat-h264-v1:${fingerprint.digest}`);
   await updateRegistry(registryPath, selected.media.id, {
     mediaItemId: selected.media.id,
+    variantId: selected.variantId,
     generationId,
     state: 'PREPARING',
     playable: false,
@@ -416,6 +449,7 @@ async function prepareCommand(arguments_: Arguments): Promise<void> {
     const audioStreams = probe.streams.filter((stream) => stream.codec_type === 'audio');
     await updateRegistry(registryPath, selected.media.id, {
       mediaItemId: selected.media.id,
+      variantId: selected.variantId,
       generationId,
       state: 'READY',
       playable: true,
@@ -442,6 +476,7 @@ async function prepareCommand(arguments_: Arguments): Promise<void> {
   } catch (error) {
     await updateRegistry(registryPath, selected.media.id, {
       mediaItemId: selected.media.id,
+      variantId: selected.variantId,
       generationId,
       state: 'FAILED',
       playable: false,
@@ -482,7 +517,8 @@ async function workCommand(arguments_: Arguments): Promise<void> {
       if (command.type === 'media.playback.requested') {
         await main([
           'package', '--root', archiveRoot, '--cache', cacheRoot, '--inventory', inventory,
-          '--registry', registry, '--media-item', command.mediaItemId, ...mediaTools,
+          '--registry', registry, '--media-item', command.mediaItemId,
+          ...(command.variantId ? ['--variant-id', command.variantId] : []), ...mediaTools,
         ], { protectedCacheKeys: () => running.protectedCacheGenerations() });
       } else if (command.type === 'archive.scan.requested') {
         if (databaseUrl !== undefined) {
@@ -491,6 +527,7 @@ async function workCommand(arguments_: Arguments): Promise<void> {
         }
         await main([
           'scan', '--root', archiveRoot, '--output', catalog, '--inventory-output', inventory,
+          ...(command.full ? ['--full'] : []),
           ...(databaseUrl === undefined ? [] : ['--database', databaseUrl]),
           ...mediaTools,
         ]);

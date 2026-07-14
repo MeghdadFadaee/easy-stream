@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { access, copyFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   assDialogueText,
@@ -23,6 +24,11 @@ export interface ParsedMediaIdentity {
   seasonNumber?: number;
   episodeNumber?: number;
   episodeTitle?: string;
+  category?: string;
+  categorySlug?: string;
+  year?: number;
+  releaseWindow?: 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | 'MOVIE';
+  titleDirectory?: string;
 }
 
 export interface SnapshotSubtitle {
@@ -38,21 +44,30 @@ export interface SnapshotSubtitle {
   forced: false;
 }
 
-export interface SnapshotMediaItem {
+export interface SnapshotMediaVariant {
   id: string;
-  titleId: string;
-  kind: 'MOVIE' | 'EPISODE';
   sourcePath: string;
   durationSeconds: number;
-  seasonNumber?: number;
-  episodeNumber?: number;
-  title: { en: string; fa?: string };
-  published: boolean;
+  qualityLabel: string;
+  width?: number;
+  height?: number;
+  videoCodec?: string;
+  available: boolean;
   compatibility: Classification['class'];
   compatibilityReasons: string[];
   fingerprint: SourceFingerprint;
   streams: NormalizedTrack[];
   subtitles: SnapshotSubtitle[];
+}
+
+export interface SnapshotMediaItem extends SnapshotMediaVariant {
+  titleId: string;
+  kind: 'MOVIE' | 'EPISODE';
+  seasonNumber?: number;
+  episodeNumber?: number;
+  title: { en: string; fa?: string };
+  published: boolean;
+  variants?: SnapshotMediaVariant[];
 }
 
 export interface SnapshotSeason {
@@ -66,6 +81,11 @@ export interface SnapshotTitle {
   slug: string;
   kind: CatalogKind;
   title: { en: string; fa?: string };
+  category?: string;
+  categorySlug?: string;
+  year?: number;
+  releaseWindow?: 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | 'MOVIE';
+  posterUrl?: string;
   published: boolean;
   playable: boolean;
   mediaItemId: string;
@@ -93,6 +113,16 @@ export interface PublicMediaItem {
   durationSeconds: number;
   compatibility: Classification['class'];
   published: boolean;
+  variants?: Array<{
+    id: string;
+    label: string;
+    width?: number;
+    height?: number;
+    videoCodec?: string;
+    compatibility: Classification['class'];
+    available: boolean;
+    isDefault: boolean;
+  }>;
 }
 
 export interface PublicTitleDetail {
@@ -100,8 +130,14 @@ export interface PublicTitleDetail {
   slug: string;
   kind: CatalogKind;
   name: { fa: string; en?: string };
+  posterUrl?: string;
+  category?: string;
+  categorySlug?: string;
+  year?: number;
+  releaseWindow?: 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | 'MOVIE';
   playable: boolean;
   resumeMediaItemId?: string;
+  variants?: PublicMediaItem['variants'];
   synopsis: { fa?: string; en?: string };
   seasons?: Array<{ number: number; episodeCount: number }>;
   mediaItems: PublicMediaItem[];
@@ -146,16 +182,33 @@ export function slugify(value: string): string {
 export function parseMediaIdentity(relativePath: string): ParsedMediaIdentity {
   const extension = path.extname(relativePath);
   const filename = path.basename(relativePath, extension);
-  const parent = path.basename(path.dirname(relativePath));
+  const segments = relativePath.split('/').filter(Boolean);
+  const immediateParent = segments.at(-2) ?? '';
+  const qualityDirectory = /^(?:\d{3,4}p?)(?:[\s._-]+(?:x26[45]|hevc|av1))?$|^(?:x26[45]|hevc|av1)$/iu.test(immediateParent);
+  const titleDirectory = segments.at(qualityDirectory ? -3 : -2) ?? immediateParent;
+  const titleIndex = Math.max(0, segments.length - (qualityDirectory ? 3 : 2));
+  const hierarchy = segments.slice(0, titleIndex);
+  const categorySource = hierarchy[0];
+  const yearSource = hierarchy.find((segment) => /^(?:18|19|20|21|22)\d{2}$/u.test(segment));
+  const releaseSource = hierarchy.find((segment) => /^(?:spring|summer|fall|winter|movie)$/iu.test(segment));
+  const releaseWindow = releaseSource?.toLocaleUpperCase('en-US') as ParsedMediaIdentity['releaseWindow'];
+  const category = categorySource ? cleanName(categorySource).replace(/^./u, (value) => value.toLocaleUpperCase('en-US')) : undefined;
   const combined = filename.match(/\bS(?:eason)?\s*(\d{1,3})\s*E(?:p(?:isode)?)?\s*(\d{1,4})\b/iu);
-  const parentSeason = parent.match(/^(.*?)(?:[\s._-]+S(?:eason)?\s*(\d{1,3}))$/iu);
+  const parentSeason = titleDirectory.match(/^(.*?)(?:[\s._-]+S(?:eason)?\s*(\d{1,3}))$/iu);
   const episode = combined?.[2]
     ?? filename.match(/(?:-|–)\s*(\d{1,4})(?=(?:[.\s_\[]|$))/u)?.[1]
     ?? filename.match(/\bE(?:p(?:isode)?)?\s*(\d{1,4})\b/iu)?.[1];
-  if (episode !== undefined) {
+  const common = {
+    ...(category ? { category, categorySlug: slugify(category) } : {}),
+    ...(yearSource ? { year: Number(yearSource) } : {}),
+    ...(releaseWindow ? { releaseWindow } : {}),
+    ...(titleDirectory ? { titleDirectory: segments.slice(0, titleIndex + 1).join('/') } : {}),
+  };
+  if (episode !== undefined && releaseWindow !== 'MOVIE') {
     const season = Number(combined?.[1] ?? parentSeason?.[2] ?? 1);
-    const title = cleanName(parentSeason?.[1] ?? parent);
+    const title = cleanName(parentSeason?.[1] ?? titleDirectory);
     return {
+      ...common,
       kind: 'SERIES',
       title: title || cleanName(filename),
       seasonNumber: season,
@@ -163,7 +216,7 @@ export function parseMediaIdentity(relativePath: string): ParsedMediaIdentity {
       episodeTitle: `Episode ${Number(episode)}`,
     };
   }
-  return { kind: 'MOVIE', title: cleanName(filename) };
+  return { ...common, kind: 'MOVIE', title: cleanName(titleDirectory || filename) };
 }
 
 export interface ScanArchiveOptions {
@@ -171,6 +224,7 @@ export interface ScanArchiveOptions {
   ffmpegPath?: string;
   ffprobePath?: string;
   onFile?: (relativePath: string, current: number) => void;
+  artworkRoot?: string;
 }
 
 const TEXT_SUBTITLE_CODECS = new Set(['ass', 'ssa', 'subrip', 'srt', 'webvtt', 'mov_text']);
@@ -185,7 +239,7 @@ async function inspectFile(
   sourcePath: string,
   archiveRoot: string,
   options: ScanArchiveOptions,
-): Promise<{ identity: ParsedMediaIdentity; media: SnapshotMediaItem }> {
+): Promise<{ identity: ParsedMediaIdentity; variant: SnapshotMediaVariant }> {
   const relativePath = path.relative(archiveRoot, sourcePath).split(path.sep).join('/');
   const identity = parseMediaIdentity(relativePath);
   const [probe, fingerprint] = await Promise.all([
@@ -193,8 +247,7 @@ async function inspectFile(
     fingerprintSource(archiveRoot, sourcePath),
   ]);
   const compatibility = classifyMedia(probe);
-  const titleId = deterministicUuid(`title:${identity.kind}:${identity.title.toLocaleLowerCase('en-US')}`);
-  const mediaId = deterministicUuid(`media:${relativePath}`);
+  const variantId = deterministicUuid(`variant:${relativePath}`);
   const tracks = normalizeTracks(probe);
   const subtitles: SnapshotSubtitle[] = [];
   for (const stream of probe.streams.filter((candidate) => candidate.codec_type === 'subtitle')) {
@@ -234,19 +287,20 @@ async function inspectFile(
     });
   }
   const duration = Number(probe.format.duration);
-  const published = ['COPY', 'AUDIO_TRANSCODE'].includes(compatibility.class);
+  const video = probe.streams.find((stream) => stream.codec_type === 'video');
+  const available = ['COPY', 'AUDIO_TRANSCODE'].includes(compatibility.class);
+  const qualityLabel = video?.height ? `${video.height}p` : cleanName(path.basename(path.dirname(relativePath))) || 'Source';
   return {
     identity,
-    media: {
-      id: mediaId,
-      titleId,
-      kind: identity.kind === 'SERIES' ? 'EPISODE' : 'MOVIE',
+    variant: {
+      id: variantId,
       sourcePath: relativePath,
       durationSeconds: Number.isFinite(duration) ? duration : 0,
-      ...(identity.seasonNumber === undefined ? {} : { seasonNumber: identity.seasonNumber }),
-      ...(identity.episodeNumber === undefined ? {} : { episodeNumber: identity.episodeNumber }),
-      title: { en: identity.episodeTitle ?? identity.title },
-      published,
+      qualityLabel,
+      ...(video?.width ? { width: video.width } : {}),
+      ...(video?.height ? { height: video.height } : {}),
+      ...(video?.codec_name ? { videoCodec: video.codec_name } : {}),
+      available,
       compatibility: compatibility.class,
       compatibilityReasons: compatibility.reasons,
       fingerprint,
@@ -258,19 +312,48 @@ async function inspectFile(
 
 export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArchiveResult> {
   const root = path.resolve(options.archiveRoot);
-  const grouped = new Map<string, { identity: ParsedMediaIdentity; media: SnapshotMediaItem[] }>();
+  const grouped = new Map<string, { identity: ParsedMediaIdentity; variants: SnapshotMediaVariant[] }>();
   let current = 0;
   for await (const sourcePath of walkArchive(root)) {
     current += 1;
     const relative = path.relative(root, sourcePath).split(path.sep).join('/');
     options.onFile?.(relative, current);
     const inspected = await inspectFile(sourcePath, root, options);
-    const key = `${inspected.identity.kind}:${inspected.identity.title.toLocaleLowerCase('en-US')}`;
-    const group = grouped.get(key) ?? { identity: inspected.identity, media: [] };
-    group.media.push(inspected.media);
+    const logical = inspected.identity.kind === 'MOVIE'
+      ? 'movie'
+      : `s${inspected.identity.seasonNumber ?? 1}e${inspected.identity.episodeNumber ?? 0}`;
+    const key = `${inspected.identity.kind}:${inspected.identity.title.toLocaleLowerCase('en-US')}:${logical}`;
+    const group = grouped.get(key) ?? { identity: inspected.identity, variants: [] };
+    group.variants.push(inspected.variant);
     grouped.set(key, group);
   }
-  const items: SnapshotTitle[] = [...grouped.values()].map(({ identity, media }) => {
+  const logicalItems = [...grouped.values()].map(({ identity, variants }) => {
+    variants.sort(compareVariants);
+    const selected = variants[0];
+    if (!selected) throw new Error('Internal media group has no source variants');
+    const titleId = deterministicUuid(`title:${identity.kind}:${identity.title.toLocaleLowerCase('en-US')}`);
+    const logicalKey = identity.kind === 'MOVIE' ? 'movie' : `s${identity.seasonNumber ?? 1}e${identity.episodeNumber ?? 0}`;
+    const media: SnapshotMediaItem = {
+      ...selected,
+      id: deterministicUuid(`media:${titleId}:${logicalKey}`),
+      titleId,
+      kind: identity.kind === 'SERIES' ? 'EPISODE' : 'MOVIE',
+      ...(identity.seasonNumber === undefined ? {} : { seasonNumber: identity.seasonNumber }),
+      ...(identity.episodeNumber === undefined ? {} : { episodeNumber: identity.episodeNumber }),
+      title: { en: identity.episodeTitle ?? identity.title },
+      published: variants.some((variant) => variant.available),
+      variants,
+    };
+    return { identity, media };
+  });
+  const byTitle = new Map<string, { identity: ParsedMediaIdentity; media: SnapshotMediaItem[] }>();
+  for (const entry of logicalItems) {
+    const key = `${entry.identity.kind}:${entry.identity.title.toLocaleLowerCase('en-US')}`;
+    const title = byTitle.get(key) ?? { identity: entry.identity, media: [] };
+    title.media.push(entry.media);
+    byTitle.set(key, title);
+  }
+  const items: SnapshotTitle[] = [...byTitle.values()].map(({ identity, media }) => {
     media.sort((left, right) => (left.seasonNumber ?? 0) - (right.seasonNumber ?? 0)
       || (left.episodeNumber ?? 0) - (right.episodeNumber ?? 0));
     const first = media[0];
@@ -291,6 +374,10 @@ export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArch
       slug: slugify(identity.title),
       kind: identity.kind,
       title: { en: identity.title },
+      ...(identity.category ? { category: identity.category } : {}),
+      ...(identity.categorySlug ? { categorySlug: identity.categorySlug } : {}),
+      ...(identity.year ? { year: identity.year } : {}),
+      ...(identity.releaseWindow ? { releaseWindow: identity.releaseWindow } : {}),
       published,
       playable: published,
       mediaItemId: first.id,
@@ -301,6 +388,18 @@ export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArch
       mediaItems: media,
     };
   });
+  for (const item of items) {
+    const identity = byTitle.get(`${item.kind}:${item.title.en.toLocaleLowerCase('en-US')}`)?.identity;
+    if (!identity?.titleDirectory) continue;
+    const source = await findThumbnail(path.join(root, identity.titleDirectory));
+    if (!source) continue;
+    const extension = path.extname(source).toLocaleLowerCase('en-US').replace('.jpeg', '.jpg');
+    item.posterUrl = `/images/archive/${item.id}${extension}`;
+    if (options.artworkRoot) {
+      await mkdir(options.artworkRoot, { recursive: true, mode: 0o750 });
+      await copyFile(source, path.join(options.artworkRoot, `${item.id}${extension}`));
+    }
+  }
   items.sort((left, right) => left.title.en.localeCompare(right.title.en));
   const generatedAt = new Date().toISOString();
   const titles: PublicTitleDetail[] = items.map((item) => ({
@@ -309,8 +408,25 @@ export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArch
     kind: item.kind,
     // Filename-derived text is a safe temporary fallback until metadata matching supplies Persian.
     name: { fa: item.title.fa ?? item.title.en, en: item.title.en },
+    ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
+    ...(item.category ? { category: item.category } : {}),
+    ...(item.categorySlug ? { categorySlug: item.categorySlug } : {}),
+    ...(item.year ? { year: item.year } : {}),
+    ...(item.releaseWindow ? { releaseWindow: item.releaseWindow } : {}),
     playable: item.playable,
     ...(item.playable ? { resumeMediaItemId: item.resumeMediaItemId } : {}),
+    ...(item.mediaItems[0]?.variants ? {
+      variants: item.mediaItems[0].variants.map((variant, index) => ({
+        id: variant.id,
+        label: variant.qualityLabel,
+        ...(variant.width ? { width: variant.width } : {}),
+        ...(variant.height ? { height: variant.height } : {}),
+        ...(variant.videoCodec ? { videoCodec: variant.videoCodec } : {}),
+        compatibility: variant.compatibility,
+        available: variant.available,
+        isDefault: index === 0,
+      })),
+    } : {}),
     synopsis: {},
     ...(item.kind === 'SERIES'
       ? { seasons: item.seasons.map((season) => ({ number: season.number, episodeCount: season.episodes.length })) }
@@ -324,6 +440,16 @@ export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArch
       durationSeconds: media.durationSeconds,
       compatibility: media.compatibility,
       published: media.published,
+      variants: (media.variants ?? [media]).map((variant, index) => ({
+        id: variant.id,
+        label: variant.qualityLabel,
+        ...(variant.width ? { width: variant.width } : {}),
+        ...(variant.height ? { height: variant.height } : {}),
+        ...(variant.videoCodec ? { videoCodec: variant.videoCodec } : {}),
+        compatibility: variant.compatibility,
+        available: variant.available,
+        isDefault: index === 0,
+      })),
     })),
     updatedAt: generatedAt,
   }));
@@ -336,4 +462,40 @@ export async function scanArchive(options: ScanArchiveOptions): Promise<ScanArch
 export function findMediaItem(snapshot: InventorySnapshot, idOrPath: string): SnapshotMediaItem | undefined {
   return snapshot.items.flatMap((item) => item.mediaItems)
     .find((media) => media.id === idOrPath || media.sourcePath === idOrPath);
+}
+
+export function findMediaVariant(
+  snapshot: InventorySnapshot,
+  mediaItemId: string,
+  variantId?: string,
+): SnapshotMediaItem | undefined {
+  const media = findMediaItem(snapshot, mediaItemId);
+  if (!media || variantId === undefined) return media;
+  const variant = media.variants?.find((candidate) => candidate.id === variantId);
+  return variant ? { ...media, ...variant, id: media.id, ...(media.variants ? { variants: media.variants } : {}) } : undefined;
+}
+
+function compareVariants(left: SnapshotMediaVariant, right: SnapshotMediaVariant): number {
+  if (left.available !== right.available) return left.available ? -1 : 1;
+  const leftHeight = left.height ?? 0;
+  const rightHeight = right.height ?? 0;
+  const leftDistance = Math.abs(leftHeight - 720);
+  const rightDistance = Math.abs(rightHeight - 720);
+  if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+  if ((leftHeight <= 720) !== (rightHeight <= 720)) return leftHeight <= 720 ? -1 : 1;
+  if (left.compatibility !== right.compatibility) return left.compatibility === 'COPY' ? -1 : 1;
+  return left.sourcePath.localeCompare(right.sourcePath);
+}
+
+async function findThumbnail(directory: string): Promise<string | undefined> {
+  for (const filename of ['thumbnail.jpg', 'thumbnail.jpeg', 'thumbnail.png', 'thumbnail.webp']) {
+    const candidate = path.join(directory, filename);
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Continue to the next supported local artwork extension.
+    }
+  }
+  return undefined;
 }

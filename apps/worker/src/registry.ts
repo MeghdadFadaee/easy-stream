@@ -45,6 +45,7 @@ export interface RegistrySubtitleTrack {
 
 export interface RegistryGeneration {
   mediaItemId: string;
+  variantId?: string;
   state: 'PREPARING' | 'READY' | 'UNSUPPORTED_CLIENT' | 'FAILED';
   generationId?: string;
   manifestPath?: string;
@@ -104,7 +105,8 @@ export async function updateRegistry(
   const current = previous.catch(() => undefined).then(async () => {
     const registry = await readRegistry(key);
     registry.updatedAt = new Date().toISOString();
-    const index = registry.packages.findIndex((entry) => entry.mediaItemId === mediaItemId);
+    const index = registry.packages.findIndex((entry) => entry.mediaItemId === mediaItemId
+      && (entry.variantId ?? entry.mediaItemId) === (generation.variantId ?? generation.mediaItemId));
     if (index < 0) registry.packages.push(generation);
     else {
       const current = registry.packages[index];

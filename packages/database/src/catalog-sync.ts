@@ -1,6 +1,6 @@
 import { CatalogSnapshotSchema, type CatalogSnapshot } from '@easy-stream/contracts';
 import { Value } from '@sinclair/typebox/value';
-import { sql } from 'drizzle-orm';
+import { inArray, notInArray, sql } from 'drizzle-orm';
 import type { Database } from './client.js';
 import { mediaItems, titles } from './schema.js';
 
@@ -15,6 +15,7 @@ export interface PreparedCatalogSync {
 export interface CatalogSyncResult {
   titlesSeen: number;
   mediaItemsSeen: number;
+  mediaIdMap: Record<string, string>;
 }
 
 /**
@@ -53,6 +54,9 @@ export function prepareCatalogSync(snapshot: unknown): PreparedCatalogSync {
       posterUrl: title.posterUrl ?? null,
       backdropUrl: title.backdropUrl ?? null,
       releaseYear: title.year ?? null,
+      category: title.category ?? null,
+      categorySlug: title.categorySlug ?? null,
+      releaseWindow: title.releaseWindow ?? null,
       published,
       publishedAt: published ? scannedAt : null,
       createdAt: scannedAt,
@@ -68,12 +72,14 @@ export function prepareCatalogSync(snapshot: unknown): PreparedCatalogSync {
         id: item.id,
         titleId: title.id,
         kind: item.kind,
+        logicalKey: item.kind === 'MOVIE' ? 'movie' : `s${item.seasonNumber ?? 1}e${item.episodeNumber ?? 0}`,
         seasonNumber: item.seasonNumber ?? null,
         episodeNumber: item.episodeNumber ?? null,
         nameFa: item.name?.fa ?? null,
         nameEn: item.name?.en ?? null,
         durationSeconds: item.durationSeconds,
         compatibility: item.compatibility,
+        variants: item.variants ?? [],
         published: item.published,
         publishedAt: item.published ? scannedAt : null,
         createdAt: scannedAt,
@@ -93,8 +99,10 @@ export function prepareCatalogSync(snapshot: unknown): PreparedCatalogSync {
 export async function syncCatalogSnapshot(
   db: Database,
   snapshot: unknown,
+  options: { authoritative?: boolean } = {},
 ): Promise<CatalogSyncResult> {
   const prepared = prepareCatalogSync(snapshot);
+  const mediaIdMap: Record<string, string> = {};
   await db.transaction(async (transaction) => {
     // Prevent two worker processes from interleaving catalog snapshots.
     await transaction.execute(sql`select pg_advisory_xact_lock(hashtext('easy-stream.catalog-sync'))`);
@@ -108,10 +116,42 @@ export async function syncCatalogSnapshot(
           set: {
             slug: sql`excluded.slug`,
             kind: sql`excluded.kind`,
+            category: sql`excluded.category`,
+            categorySlug: sql`excluded.category_slug`,
+            releaseWindow: sql`excluded.release_window`,
+            releaseYear: sql`coalesce(${titles.releaseYear}, excluded.release_year)`,
+            posterUrl: sql`case when ${titles.posterUrl} is null or ${titles.posterUrl} like '/images/archive/%' then excluded.poster_url else ${titles.posterUrl} end`,
             updatedAt: prepared.scannedAt,
           },
-          setWhere: sql`${titles.slug} is distinct from excluded.slug or ${titles.kind} is distinct from excluded.kind`,
+          setWhere: sql`${titles.slug} is distinct from excluded.slug
+            or ${titles.kind} is distinct from excluded.kind
+            or ${titles.category} is distinct from excluded.category
+            or ${titles.categorySlug} is distinct from excluded.category_slug
+            or ${titles.releaseWindow} is distinct from excluded.release_window
+            or (${titles.releaseYear} is null and excluded.release_year is not null)
+            or ((${titles.posterUrl} is null or ${titles.posterUrl} like '/images/archive/%') and ${titles.posterUrl} is distinct from excluded.poster_url)`,
         });
+    }
+
+    if (prepared.titleRows.length > 0) {
+      const existing = await transaction.select({
+        id: mediaItems.id,
+        titleId: mediaItems.titleId,
+        logicalKey: mediaItems.logicalKey,
+        seasonNumber: mediaItems.seasonNumber,
+        episodeNumber: mediaItems.episodeNumber,
+        kind: mediaItems.kind,
+      }).from(mediaItems).where(inArray(mediaItems.titleId, prepared.titleRows.map((row) => row.id as string)));
+      const byLogicalKey = new Map(existing.map((row) => [
+        `${row.titleId}:${row.logicalKey ?? (row.kind === 'MOVIE' ? 'movie' : `s${row.seasonNumber ?? 1}e${row.episodeNumber ?? 0}`)}`,
+        row.id,
+      ]));
+      for (const row of prepared.mediaItemRows) {
+        const current = byLogicalKey.get(`${row.titleId}:${row.logicalKey}`);
+        if (!current || current === row.id) continue;
+        mediaIdMap[String(row.id)] = current;
+        row.id = current;
+      }
     }
 
     for (const batch of batches(prepared.mediaItemRows, UPSERT_BATCH_SIZE)) {
@@ -123,26 +163,40 @@ export async function syncCatalogSnapshot(
           set: {
             titleId: sql`excluded.title_id`,
             kind: sql`excluded.kind`,
+            logicalKey: sql`excluded.logical_key`,
             seasonNumber: sql`excluded.season_number`,
             episodeNumber: sql`excluded.episode_number`,
             durationSeconds: sql`excluded.duration_seconds`,
             compatibility: sql`excluded.compatibility`,
+            variants: sql`excluded.variants`,
             updatedAt: prepared.scannedAt,
           },
           setWhere: sql`
             ${mediaItems.titleId} is distinct from excluded.title_id
             or ${mediaItems.kind} is distinct from excluded.kind
+            or ${mediaItems.logicalKey} is distinct from excluded.logical_key
             or ${mediaItems.seasonNumber} is distinct from excluded.season_number
             or ${mediaItems.episodeNumber} is distinct from excluded.episode_number
             or ${mediaItems.durationSeconds} is distinct from excluded.duration_seconds
             or ${mediaItems.compatibility} is distinct from excluded.compatibility
+            or ${mediaItems.variants} is distinct from excluded.variants
           `,
         });
+    }
+
+    if (options.authoritative) {
+      const seenMediaIds = prepared.mediaItemRows.map((row) => row.id as string);
+      const seenTitleIds = prepared.titleRows.map((row) => row.id as string);
+      await transaction.update(mediaItems).set({ published: false, publishedAt: null, updatedAt: prepared.scannedAt })
+        .where(seenMediaIds.length ? notInArray(mediaItems.id, seenMediaIds) : sql`true`);
+      await transaction.update(titles).set({ published: false, publishedAt: null, updatedAt: prepared.scannedAt })
+        .where(seenTitleIds.length ? notInArray(titles.id, seenTitleIds) : sql`true`);
     }
   });
   return {
     titlesSeen: prepared.titleRows.length,
     mediaItemsSeen: prepared.mediaItemRows.length,
+    mediaIdMap,
   };
 }
 

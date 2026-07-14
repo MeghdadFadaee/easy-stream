@@ -11,6 +11,7 @@ export const defaultPreferences: ViewerPreferences = {
   audioLanguage: 'ja',
   volume: 1,
   muted: false,
+  preferredQualityHeight: 720,
 }
 
 let databasePromise: Promise<IDBDatabase | null> | undefined

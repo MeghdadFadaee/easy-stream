@@ -23,10 +23,15 @@ export class PlaybackService {
 
   async create(input: CreatePlaybackSession): Promise<StoredPlaybackSession> {
     const item = await this.requirePlayableMedia(input.mediaItemId);
+    const variant = selectVariant(item, input.variantId);
+    if (!variant) throw new AppError(404, 'NOT_FOUND', 'Requested quality is unavailable');
+    const selectedItem = { ...item, compatibility: variant.compatibility };
     const now = Date.now();
     const base: StoredPlaybackSession = {
       id: randomUUID(),
       mediaItemId: item.id,
+      variantId: variant.id,
+      qualityLabel: variant.label,
       state: 'PREPARING',
       capabilities: input.clientCapabilities,
       expiresAt: new Date(now + this.config.playbackTtlSeconds * 1000).toISOString(),
@@ -41,7 +46,7 @@ export class PlaybackService {
       await this.repository.createPlaybackSession(unsupported);
       return unsupported;
     }
-    if (item.compatibility === 'HOLD_HDR') {
+    if (selectedItem.compatibility === 'HOLD_HDR') {
       const unsupported: StoredPlaybackSession = {
         ...base,
         state: 'UNSUPPORTED_CLIENT',
@@ -50,7 +55,7 @@ export class PlaybackService {
       await this.repository.createPlaybackSession(unsupported);
       return unsupported;
     }
-    if (item.compatibility === 'INVALID') {
+    if (selectedItem.compatibility === 'INVALID') {
       const failed: StoredPlaybackSession = {
         ...base,
         state: 'FAILED',
@@ -63,7 +68,8 @@ export class PlaybackService {
     await this.repository.createPlaybackSession(base);
     const preparation = await this.media.prepare({
       sessionId: base.id,
-      mediaItem: item,
+      mediaItem: selectedItem,
+      variantId: variant.id,
       capabilities: input.clientCapabilities,
       protectUntil: base.expiresAt,
     });
@@ -79,9 +85,12 @@ export class PlaybackService {
     }
     if (session.state !== 'PREPARING') return session;
     const item = await this.requirePlayableMedia(session.mediaItemId);
+    const variant = selectVariant(item, session.variantId);
+    if (!variant) throw new AppError(404, 'NOT_FOUND', 'Playback quality is no longer available');
     const preparation = await this.media.getStatus({
       sessionId: id,
-      mediaItem: item,
+      mediaItem: { ...item, compatibility: variant.compatibility },
+      variantId: variant.id,
       protectUntil: session.expiresAt,
     });
     const updated = this.mergePreparation(session, preparation);
@@ -133,6 +142,28 @@ export class PlaybackService {
       ...(preparation.reasonCode ? { reasonCode: preparation.reasonCode } : {}),
     };
   }
+}
+
+function selectVariant(item: MediaItemForPlayback, requestedId?: string) {
+  const available = item.variants.filter((variant) => variant.available);
+  if (requestedId) return available.find((variant) => variant.id === requestedId);
+  if (available.length === 0) {
+    return item.published ? {
+      id: item.id,
+      label: 'Source',
+      compatibility: item.compatibility,
+      available: true,
+      isDefault: true,
+    } : undefined;
+  }
+  return available.find((variant) => variant.isDefault)
+    ?? [...available].sort((left, right) => {
+      const leftHeight = left.height ?? 0;
+      const rightHeight = right.height ?? 0;
+      const distance = Math.abs(leftHeight - 720) - Math.abs(rightHeight - 720);
+      if (distance !== 0) return distance;
+      return leftHeight <= 720 && rightHeight > 720 ? -1 : 1;
+    })[0];
 }
 
 function supportsHls(capabilities: ClientCapabilities): boolean {

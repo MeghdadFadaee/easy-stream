@@ -61,6 +61,7 @@ export const SubtitleTrackSchema = Type.Object(
 export const CreatePlaybackSessionSchema = Type.Object(
   {
     mediaItemId: UuidSchema,
+    variantId: Type.Optional(UuidSchema),
     clientCapabilities: ClientCapabilitiesSchema,
   },
   { additionalProperties: false },
@@ -70,6 +71,8 @@ export const PlaybackSessionSchema = Type.Object(
   {
     id: UuidSchema,
     mediaItemId: UuidSchema,
+    variantId: Type.Optional(UuidSchema),
+    qualityLabel: Type.Optional(Type.String({ maxLength: 64 })),
     state: PlaybackStateSchema,
     manifestUrl: Type.Optional(Type.String()),
     generationId: Type.Optional(UuidSchema),

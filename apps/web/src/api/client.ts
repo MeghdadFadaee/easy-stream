@@ -3,6 +3,7 @@ import type {
   AdminJob,
   CatalogItem,
   CatalogPage,
+  CatalogSection,
   ClientCapabilities,
   EpisodeItem,
   LocalizedText,
@@ -10,6 +11,7 @@ import type {
   PlaybackSession,
   PlaybackState,
   PlaybackSubtitleTrack,
+  QualityVariant,
   SeasonItem,
   TitleDetail,
 } from '@/types'
@@ -67,6 +69,20 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+function normalizeVariant(input: unknown): QualityVariant {
+  const item = record(input)
+  return {
+    id: text(item.id) ?? '',
+    label: text(item.label) ?? `${number(item.height) ?? 0}p`,
+    ...(number(item.width) ? { width: number(item.width) } : {}),
+    ...(number(item.height) ? { height: number(item.height) } : {}),
+    ...(text(item.videoCodec) ? { videoCodec: text(item.videoCodec) } : {}),
+    compatibility: text(item.compatibility) ?? 'INVALID',
+    available: boolean(item.available),
+    isDefault: boolean(item.isDefault),
+  }
+}
+
 function normalizeCatalogItem(input: unknown): CatalogItem {
   const item = record(input)
   const metadata = record(item.metadata)
@@ -95,6 +111,10 @@ function normalizeCatalogItem(input: unknown): CatalogItem {
     ...(posterUrl ? { posterUrl } : {}),
     ...(backdropUrl ? { backdropUrl } : {}),
     ...(number(item.year ?? metadata.year) !== undefined ? { year: number(item.year ?? metadata.year) } : {}),
+    ...(text(item.category) ? { category: text(item.category) } : {}),
+    ...(text(item.categorySlug) ? { categorySlug: text(item.categorySlug) } : {}),
+    ...(text(item.releaseWindow) ? { releaseWindow: text(item.releaseWindow) } : {}),
+    variants: array(item.variants).map(normalizeVariant).filter((variant) => variant.id),
     ...(number(item.runtimeSeconds ?? item.durationSeconds) !== undefined
       ? { runtimeSeconds: number(item.runtimeSeconds ?? item.durationSeconds) }
       : {}),
@@ -121,6 +141,7 @@ function normalizeEpisode(input: unknown, seasonNumber: number): EpisodeItem {
       ? { durationSeconds: number(item.durationSeconds ?? item.runtimeSeconds) }
       : {}),
     published: item.published === undefined ? true : boolean(item.published),
+    variants: array(item.variants).map(normalizeVariant).filter((variant) => variant.id),
   }
 }
 
@@ -207,6 +228,8 @@ export function normalizePlaybackSession(input: unknown): PlaybackSession {
     id,
     state: normalizeState(payload.state ?? payload.status),
     mediaItemId: text(payload.mediaItemId) ?? '',
+    ...(text(payload.variantId) ? { variantId: text(payload.variantId) } : {}),
+    ...(text(payload.qualityLabel) ? { qualityLabel: text(payload.qualityLabel) } : {}),
     ...(manifestUrl ? { manifestUrl } : {}),
     ...(number(payload.durationSeconds ?? payload.duration) !== undefined
       ? { durationSeconds: number(payload.durationSeconds ?? payload.duration) }
@@ -270,7 +293,7 @@ function withSignal(signal: AbortSignal | undefined, init: RequestInit = {}): Re
 }
 
 export const api = {
-  async catalog(options: { cursor?: string; limit?: number; kind?: string } = {}, signal?: AbortSignal): Promise<CatalogPage> {
+  async catalog(options: { cursor?: string; limit?: number; kind?: string; category?: string; year?: number; releaseWindow?: string } = {}, signal?: AbortSignal): Promise<CatalogPage> {
     const body = await request(`/catalog${queryString({ ...options })}`, withSignal(signal))
     const source = record(body)
     const payload = Object.keys(record(source.data)).length ? record(source.data) : source
@@ -282,6 +305,19 @@ export const api = {
       ...(nextCursor ? { nextCursor } : {}),
       ...(total !== undefined ? { total } : {}),
     }
+  },
+
+  async catalogSections(limitPerSection = 12, signal?: AbortSignal): Promise<CatalogSection[]> {
+    const body = record(await request(`/catalog/sections${queryString({ limitPerSection })}`, withSignal(signal)))
+    return array(body.sections).map((input) => {
+      const section = record(input)
+      return {
+        slug: text(section.slug) ?? '',
+        name: text(section.name) ?? text(section.slug) ?? '',
+        items: array(section.items).map(normalizeCatalogItem).filter((item) => item.id),
+        hasMore: boolean(section.hasMore),
+      }
+    }).filter((section) => section.slug && section.items.length)
   },
 
   async search(term: string, signal?: AbortSignal): Promise<CatalogPage> {
@@ -334,11 +370,12 @@ export const api = {
   async createPlaybackSession(
     mediaItemId: string,
     clientCapabilities: ClientCapabilities,
+    variantId?: string,
     signal?: AbortSignal,
   ): Promise<PlaybackSession> {
     const body = await request('/playback-sessions', withSignal(signal, {
       method: 'POST',
-      body: JSON.stringify({ mediaItemId, clientCapabilities }),
+      body: JSON.stringify({ mediaItemId, ...(variantId ? { variantId } : {}), clientCapabilities }),
     }))
     const session = normalizePlaybackSession(body)
     return { ...session, mediaItemId: session.mediaItemId || mediaItemId }
@@ -436,7 +473,7 @@ export const api = {
     const body = record(await request('/admin/scans', {
       method: 'POST',
       headers: { 'x-csrf-token': csrfToken },
-      body: JSON.stringify({ full: false }),
+      body: JSON.stringify({ full: true }),
     }))
     const jobId = text(body.id ?? body.jobId ?? record(body.data).jobId)
     return { ...(jobId ? { jobId } : {}) }

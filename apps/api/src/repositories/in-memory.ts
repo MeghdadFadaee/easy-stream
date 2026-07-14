@@ -52,6 +52,9 @@ export class InMemoryRepository implements AppRepository {
     const published = [...this.titles.values()]
       .filter((title) => title.mediaItems.some((item) => item.published))
       .filter((title) => !query.kind || title.kind === query.kind)
+      .filter((title) => !query.category || (title.categorySlug ?? 'other') === query.category)
+      .filter((title) => !query.year || title.year === query.year)
+      .filter((title) => !query.releaseWindow || title.releaseWindow === query.releaseWindow)
       .sort((left, right) => left.slug.localeCompare(right.slug));
     const cursorId = decodeCursor(query.cursor);
     const start = cursorId ? Math.max(0, published.findIndex((title) => title.id === cursorId) + 1) : 0;
@@ -61,6 +64,23 @@ export class InMemoryRepository implements AppRepository {
       items: page.map(toCard),
       ...(next && page.at(-1) ? { nextCursor: encodeCursor(page.at(-1)!.id) } : {}),
     };
+  }
+
+  async listCatalogSections(limitPerSection: number) {
+    const groups = new Map<string, TitleDetail[]>();
+    for (const title of this.titles.values()) {
+      if (!title.mediaItems.some((item) => item.published)) continue;
+      const categorySlug = title.categorySlug ?? 'other';
+      const group = groups.get(categorySlug) ?? [];
+      group.push(title);
+      groups.set(categorySlug, group);
+    }
+    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([slug, titles]) => ({
+      slug,
+      name: titles[0]?.category ?? 'Other',
+      items: titles.slice(0, limitPerSection).map(toCard),
+      hasMore: titles.length > limitPerSection,
+    }));
   }
 
   async searchTitles(query: SearchQuery) {
@@ -94,6 +114,14 @@ export class InMemoryRepository implements AppRepository {
           durationSeconds: item.durationSeconds,
           compatibility: item.compatibility,
           published: item.published,
+          variants: (item.variants ?? []).map((variant) => ({
+            id: variant.id,
+            label: variant.label,
+            ...(variant.height ? { height: variant.height } : {}),
+            compatibility: variant.compatibility,
+            available: variant.available,
+            isDefault: variant.isDefault,
+          })),
         };
       }
     }

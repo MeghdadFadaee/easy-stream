@@ -6,6 +6,17 @@ export interface LocalizedText {
   en?: string | undefined
 }
 
+export interface QualityVariant {
+  id: string
+  label: string
+  width?: number | undefined
+  height?: number | undefined
+  videoCodec?: string | undefined
+  compatibility: string
+  available: boolean
+  isDefault: boolean
+}
+
 export interface CatalogItem {
   id: string
   mediaItemId: string
@@ -16,6 +27,10 @@ export interface CatalogItem {
   posterUrl?: string | undefined
   backdropUrl?: string | undefined
   year?: number | undefined
+  category?: string | undefined
+  categorySlug?: string | undefined
+  releaseWindow?: string | undefined
+  variants: QualityVariant[]
   runtimeSeconds?: number | undefined
   seasonCount?: number | undefined
   episodeCount?: number | undefined
@@ -34,6 +49,7 @@ export interface EpisodeItem {
   posterUrl?: string | undefined
   durationSeconds?: number | undefined
   published: boolean
+  variants: QualityVariant[]
 }
 
 export interface SeasonItem {
@@ -52,6 +68,13 @@ export interface CatalogPage {
   items: CatalogItem[]
   nextCursor?: string | undefined
   total?: number | undefined
+}
+
+export interface CatalogSection {
+  slug: string
+  name: string
+  items: CatalogItem[]
+  hasMore: boolean
 }
 
 export type PlaybackState = 'PREPARING' | 'READY' | 'UNSUPPORTED_CLIENT' | 'FAILED'
@@ -79,6 +102,8 @@ export interface PlaybackSession {
   id: string
   state: PlaybackState
   mediaItemId: string
+  variantId?: string | undefined
+  qualityLabel?: string | undefined
   manifestUrl?: string | undefined
   durationSeconds?: number | undefined
   pollAfterMs: number
@@ -115,6 +140,7 @@ export interface ViewerPreferences {
   audioLanguage: string
   volume: number
   muted: boolean
+  preferredQualityHeight: number
 }
 
 export interface AdminJob {

@@ -3,6 +3,8 @@ import { markRaw } from 'vue'
 
 export interface PlayRequest {
   mediaItemId: string
+  variantId?: string
+  variants?: import('@/types').QualityVariant[]
   title: string
   posterUrl?: string
 }

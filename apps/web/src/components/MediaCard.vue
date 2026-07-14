@@ -19,6 +19,7 @@ function play() {
   if (!props.item.playable || !props.item.mediaItemId) return
   player.play({
     mediaItemId: props.item.mediaItemId,
+    ...(props.item.variants.length ? { variants: props.item.variants } : {}),
     title: title.value,
     ...(props.item.posterUrl ? { posterUrl: props.item.posterUrl } : {}),
   })

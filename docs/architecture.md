@@ -29,15 +29,15 @@ The archive is never exposed over HTTP and is never writable by an application c
 
 ## Media lifecycle
 
-1. The worker walks regular `.mkv` files under `ARCHIVE_ROOT`, rejects escaping symlinks, fingerprints the file, and records ffprobe stream metadata.
+1. The worker walks regular `.mkv` files under `ARCHIVE_ROOT`, rejects escaping symlinks, derives category/year/release-window/title identity from the archive hierarchy, fingerprints each source variant, and records ffprobe stream metadata.
 2. Sources are classified as `COPY`, `AUDIO_TRANSCODE`, `VIDEO_TRANSCODE`, `HOLD_HDR`, or `INVALID`.
 3. Publication is allowed immediately for `COPY`; incompatible SDR media must finish its single H.264/AAC compatibility representation first. HDR is held in v1.
-4. A cold playback request creates one packaging job per source/profile fingerprint. FFmpeg copies supported elementary streams to separate fragmented-MP4 HLS playlists.
+4. A movie or episode may have several source-quality variants. Auto prefers 720p and viewers may change quality explicitly; a cold playback request creates one packaging job per selected source/profile fingerprint. FFmpeg copies supported elementary streams to separate fragmented-MP4 HLS playlists.
 5. EVENT manifests may grow privately, but the registry remains `PREPARING` until HLS, subtitles, and generation-scoped fonts are all ready. The worker then publishes one complete `READY` record and finalizes immutable VOD playlists.
 6. Compatible generations live in the 2 TB LRU cache. A playback session records a Redis lease and persistent access timestamp through the signed-cookie expiry; high/low-watermark sweeps skip leased, building, pinned, and recently touched entries. Encoded compatibility components live on separately sized durable storage and are never swept.
 7. Eviction removes the matching package-registry entry so the next request regenerates it. Aged global font objects with no generation hardlinks are pruned during packaging sweeps.
 
-There is deliberately no adaptive bitrate ladder. Slow connections or devices that reject the original resolution receive a clear compatibility/connection error rather than an undisclosed quality reduction.
+There is deliberately no adaptive bitrate ladder. Quality changes are explicit, preserve the logical-media resume position, and create independent cache generations. Devices that reject every available representation receive a clear compatibility error.
 
 ## Trust boundaries
 

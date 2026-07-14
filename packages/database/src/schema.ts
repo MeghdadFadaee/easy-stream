@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const titleKind = pgEnum('title_kind', ['MOVIE', 'SERIES']);
+export const releaseWindow = pgEnum('release_window', ['SPRING', 'SUMMER', 'FALL', 'WINTER', 'MOVIE']);
 export const mediaKind = pgEnum('media_kind', ['MOVIE', 'EPISODE']);
 export const streamKind = pgEnum('stream_kind', ['VIDEO', 'AUDIO']);
 export const compatibilityClass = pgEnum('compatibility_class', [
@@ -64,6 +65,9 @@ export const titles = pgTable(
     posterUrl: text('poster_url'),
     backdropUrl: text('backdrop_url'),
     releaseYear: integer('release_year'),
+    category: varchar('category', { length: 100 }),
+    categorySlug: varchar('category_slug', { length: 100 }),
+    releaseWindow: releaseWindow('release_window'),
     tmdbId: integer('tmdb_id'),
     published: boolean('published').notNull().default(false),
     publishedAt: timestamp('published_at', { withTimezone: true }),
@@ -84,6 +88,7 @@ export const mediaItems = pgTable(
       .notNull()
       .references(() => titles.id, { onDelete: 'cascade' }),
     kind: mediaKind('kind').notNull(),
+    logicalKey: varchar('logical_key', { length: 80 }),
     seasonNumber: integer('season_number'),
     episodeNumber: integer('episode_number'),
     nameFa: text('name_fa'),
@@ -91,12 +96,23 @@ export const mediaItems = pgTable(
     durationSeconds: doublePrecision('duration_seconds'),
     compatibility: compatibilityClass('compatibility').notNull().default('INVALID'),
     compatibilityReason: text('compatibility_reason'),
+    variants: jsonb('variants').$type<Array<{
+      id: string;
+      label: string;
+      width?: number;
+      height?: number;
+      videoCodec?: string;
+      compatibility: string;
+      available: boolean;
+      isDefault: boolean;
+    }>>().notNull().default([]),
     published: boolean('published').notNull().default(false),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
     index('media_items_title_idx').on(table.titleId),
+    uniqueIndex('media_items_logical_uidx').on(table.titleId, table.logicalKey),
     uniqueIndex('media_items_episode_uidx').on(
       table.titleId,
       table.seasonNumber,
@@ -120,6 +136,13 @@ export const sourceFiles = pgTable(
     headHash: varchar('head_hash', { length: 128 }).notNull(),
     tailHash: varchar('tail_hash', { length: 128 }).notNull(),
     fingerprint: varchar('fingerprint', { length: 128 }).notNull(),
+    qualityLabel: varchar('quality_label', { length: 64 }),
+    width: integer('width'),
+    height: integer('height'),
+    videoCodec: varchar('video_codec', { length: 64 }),
+    durationSeconds: doublePrecision('duration_seconds'),
+    compatibility: compatibilityClass('compatibility').notNull().default('INVALID'),
+    compatibilityReason: text('compatibility_reason'),
     probeJson: jsonb('probe_json').$type<Record<string, unknown>>(),
     present: boolean('present').notNull().default(true),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
@@ -217,6 +240,8 @@ export const mediaPackages = pgTable(
     mediaItemId: uuid('media_item_id')
       .notNull()
       .references(() => mediaItems.id, { onDelete: 'cascade' }),
+    // Scanner variant IDs are deterministic external identifiers, like generation IDs.
+    variantId: uuid('variant_id'),
     sourceFingerprint: varchar('source_fingerprint', { length: 128 }).notNull(),
     profileVersion: varchar('profile_version', { length: 64 }).notNull(),
     state: packageState('state').notNull().default('QUEUED'),
@@ -296,6 +321,7 @@ export const playbackSessions = pgTable(
     mediaItemId: uuid('media_item_id')
       .notNull()
       .references(() => mediaItems.id, { onDelete: 'cascade' }),
+    variantId: uuid('variant_id'),
     // Packaging generation IDs are deterministic UUIDs owned by the media worker. They are
     // deliberately not media_packages.id, so this column must not reference that primary key.
     generationId: uuid('generation_id'),

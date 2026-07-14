@@ -36,7 +36,7 @@ const currentTime = ref(0)
 const duration = ref(0)
 const buffered = ref(0)
 const controlsVisible = ref(true)
-const menu = ref<'subtitles' | 'audio' | null>(null)
+const menu = ref<'subtitles' | 'audio' | 'quality' | null>(null)
 const session = ref<PlaybackSession | null>(null)
 const selectedSubtitle = ref('off')
 const selectedAudio = ref('')
@@ -442,7 +442,17 @@ async function start(request: PlayRequest) {
   }
 
   try {
-    const initial = await api.createPlaybackSession(request.mediaItemId, capabilities, requestController.signal)
+    const variants = (request.variants ?? []).filter((variant) => variant.available)
+    const selectedVariant = request.variantId
+      ? variants.find((variant) => variant.id === request.variantId)
+      : variants.find((variant) => variant.height === ui.preferences.preferredQualityHeight)
+        ?? variants.find((variant) => variant.isDefault)
+    const initial = await api.createPlaybackSession(
+      request.mediaItemId,
+      capabilities,
+      selectedVariant?.id,
+      requestController.signal,
+    )
     await resolveSession(initial, sequence, requestController.signal)
   } catch (error) {
     if ((error as { name?: string }).name === 'AbortError' || sequence !== requestSequence) return
@@ -503,9 +513,21 @@ function toggleMute() {
   void ui.setVolume(element.volume, element.muted)
 }
 
-function toggleMenu(target: 'subtitles' | 'audio') {
+function toggleMenu(target: 'subtitles' | 'audio' | 'quality') {
   menu.value = menu.value === target ? null : target
   showControls()
+}
+
+async function chooseQuality(variant: NonNullable<PlayRequest['variants']>[number]) {
+  const request = currentRequest.value
+  if (!request || session.value?.variantId === variant.id) {
+    menu.value = null
+    return
+  }
+  await saveProgress(true)
+  if (variant.height) await ui.setPreferredQuality(variant.height)
+  menu.value = null
+  await start({ ...request, variantId: variant.id })
 }
 
 function formatTime(seconds: number): string {
@@ -670,6 +692,20 @@ onBeforeUnmount(() => {
         </button>
 
         <span class="control-spacer" />
+
+        <div v-if="currentRequest?.variants?.some((variant) => variant.available)" class="control-menu-wrap">
+          <button class="player-text-button focus-ring" type="button" data-tv-focus @click="toggleMenu('quality')">{{ t('quality') }}</button>
+          <div v-if="menu === 'quality'" class="track-menu">
+            <button
+              v-for="variant in currentRequest.variants.filter((candidate) => candidate.available)"
+              :key="variant.id"
+              type="button"
+              data-tv-focus
+              :class="{ selected: variant.id === session?.variantId }"
+              @click="chooseQuality(variant)"
+            >{{ variant.label }}</button>
+          </div>
+        </div>
 
         <div v-if="session?.audioTracks.length" class="control-menu-wrap">
           <button class="player-text-button focus-ring" type="button" data-tv-focus @click="toggleMenu('audio')">{{ t('audio') }}</button>

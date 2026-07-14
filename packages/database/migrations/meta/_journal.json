@@ -15,6 +15,13 @@
       "when": 1784016000000,
       "tag": "0001_playback_generation_external",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784073600000,
+      "tag": "0002_archive_variants",
+      "breakpoints": true
     }
   ]
 }

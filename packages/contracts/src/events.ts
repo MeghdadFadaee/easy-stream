@@ -8,6 +8,7 @@ export const MediaCommandSchema = Type.Union([
       type: Type.Literal('media.playback.requested'),
       sessionId: UuidSchema,
       mediaItemId: UuidSchema,
+      variantId: Type.Optional(UuidSchema),
     },
     { additionalProperties: false },
   ),
@@ -63,6 +64,7 @@ export const MediaPreparationResultSchema = Type.Object(
 export const PackageRegistryEntrySchema = Type.Object(
   {
     mediaItemId: UuidSchema,
+    variantId: Type.Optional(UuidSchema),
     state: Type.Union([
       Type.Literal('PREPARING'),
       Type.Literal('READY'),

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import AdminView from '@/views/AdminView.vue'
 import CatalogView from '@/views/CatalogView.vue'
+import BrowseView from '@/views/BrowseView.vue'
 import SearchView from '@/views/SearchView.vue'
 import TitleView from '@/views/TitleView.vue'
 
@@ -11,6 +12,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'catalog', component: CatalogView },
     { path: '/search', name: 'search', component: SearchView },
+    { path: '/browse/:category', name: 'browse', component: BrowseView },
     { path: '/title/:slug', name: 'title', component: TitleView },
     { path: '/admin', name: 'admin', component: AdminView },
     { path: '/:pathMatch(.*)*', redirect: '/' },

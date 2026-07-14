@@ -61,6 +61,10 @@ describe('viewer API', () => {
       expect.objectContaining({ id: ids.title, playable: true }),
     ]);
 
+    const sections = await app.inject({ method: 'GET', url: '/api/v1/catalog/sections?limitPerSection=12' });
+    expect(sections.statusCode).toBe(200);
+    expect(sections.json().sections[0]).toEqual(expect.objectContaining({ slug: 'anime', name: 'Anime' }));
+
     const search = await app.inject({ method: 'GET', url: '/api/v1/search?q=Sample' });
     expect(search.statusCode).toBe(200);
     expect(search.json().items[0].slug).toBe('sample-series');
@@ -89,6 +93,7 @@ describe('viewer API', () => {
       url: '/api/v1/playback-sessions',
       payload: {
         mediaItemId: ids.media,
+        variantId: ids.variant,
         clientCapabilities: capabilities(),
       },
     });
@@ -96,6 +101,7 @@ describe('viewer API', () => {
     expect(response.json()).toEqual(
       expect.objectContaining({
         state: 'READY',
+        variantId: ids.variant,
         manifestUrl: `http://localhost:8080/media/generations/${ids.generation}/master.m3u8`,
       }),
     );

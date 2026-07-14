@@ -3,6 +3,7 @@ import type {
   AudioTrack,
   CacheStatus,
   CatalogCard,
+  CatalogSection,
   CatalogQuery,
   ClientCapabilities,
   Job,
@@ -20,6 +21,14 @@ export interface MediaItemForPlayback {
   durationSeconds: number;
   compatibility: 'COPY' | 'AUDIO_TRANSCODE' | 'VIDEO_TRANSCODE' | 'HOLD_HDR' | 'INVALID';
   published: boolean;
+  variants: Array<{
+    id: string;
+    label: string;
+    height?: number;
+    compatibility: 'COPY' | 'AUDIO_TRANSCODE' | 'VIDEO_TRANSCODE' | 'HOLD_HDR' | 'INVALID';
+    available: boolean;
+    isDefault: boolean;
+  }>;
 }
 
 export interface CatalogPage {
@@ -29,6 +38,7 @@ export interface CatalogPage {
 
 export interface CatalogRepository {
   listCatalog(query: CatalogQuery): Promise<CatalogPage>;
+  listCatalogSections(limitPerSection: number): Promise<CatalogSection[]>;
   searchTitles(query: SearchQuery): Promise<CatalogCard[]>;
   getTitleBySlug(slug: string): Promise<TitleDetail | undefined>;
   getMediaItem(id: string): Promise<MediaItemForPlayback | undefined>;
@@ -95,12 +105,14 @@ export interface MediaPreparationService {
   prepare(input: {
     sessionId: string;
     mediaItem: MediaItemForPlayback;
+    variantId?: string;
     capabilities: ClientCapabilities;
     protectUntil?: string;
   }): Promise<MediaPreparation>;
   getStatus(input: {
     sessionId: string;
     mediaItem: MediaItemForPlayback;
+    variantId?: string;
     protectUntil?: string;
   }): Promise<MediaPreparation>;
 }
