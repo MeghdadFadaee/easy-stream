@@ -367,7 +367,7 @@ function attachManifest(activeSession: PlaybackSession) {
     maxBufferLength: 30,
     manifestLoadingTimeOut: 20_000,
     fragLoadingTimeOut: 30_000,
-    xhrSetup: (xhr) => { xhr.withCredentials = true },
+    xhrSetup: (xhr) => { xhr.withCredentials = !import.meta.env.VITE_SHOWCASE_CATALOG_URL },
   })
   hls.on(Events.MEDIA_ATTACHED, () => hls?.loadSource(activeSession.manifestUrl!))
   hls.on(Events.MANIFEST_PARSED, () => void onManifestReady())

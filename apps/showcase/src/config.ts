@@ -13,9 +13,10 @@ export interface ShowcaseConfig {
   port: number;
   ffmpegPath: string;
   ffprobePath: string;
+  exportRoot: string;
 }
 
-const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
+export const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 async function loadEnvironment(filename = path.join(projectRoot, '.env.showcase')): Promise<void> {
   try {
@@ -52,6 +53,7 @@ export async function readConfig(): Promise<ShowcaseConfig> {
     port,
     ffmpegPath: process.env.SHOWCASE_FFMPEG ?? 'ffmpeg',
     ffprobePath: process.env.SHOWCASE_FFPROBE ?? 'ffprobe',
+    exportRoot: path.resolve(projectRoot, process.env.SHOWCASE_EXPORT_ROOT ?? './dist/showcase-static'),
   };
 }
 

@@ -19,6 +19,7 @@ describe('showcase server', () => {
       archiveRoot: path.join(root, 'archive'), dataRoot: root, databasePath: path.join(root, 'db.sqlite'),
       mediaRoot: path.join(root, 'media'), artworkRoot: path.join(root, 'artwork'), webRoot,
       host: '127.0.0.1', port: 8080, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe',
+      exportRoot: path.join(root, 'export'),
     };
     const db = openDatabase(config.databasePath);
     databases.push(db);

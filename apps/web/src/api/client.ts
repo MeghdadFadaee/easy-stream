@@ -17,6 +17,9 @@ import type {
 } from '@/types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
+const SHOWCASE = import.meta.env.VITE_APP_EDITION === 'showcase'
+const SHOWCASE_CATALOG_URL = import.meta.env.VITE_SHOWCASE_CATALOG_URL
+const STATIC_SHOWCASE = SHOWCASE && Boolean(SHOWCASE_CATALOG_URL)
 const ADMIN_CSRF_KEY = 'easy-stream-admin-csrf'
 const ADMIN_EMAIL_KEY = 'easy-stream-admin-email'
 
@@ -33,6 +36,9 @@ export class ApiError extends Error {
 }
 
 type JsonRecord = Record<string, unknown>
+
+let showcaseSnapshotPromise: Promise<JsonRecord> | undefined
+const showcaseSessions = new Map<string, PlaybackSession>()
 
 function record(value: unknown): JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -67,6 +73,22 @@ function localized(value: unknown, fallback?: unknown): LocalizedText {
 
 function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+async function showcaseSnapshot(signal?: AbortSignal): Promise<JsonRecord> {
+  if (!SHOWCASE_CATALOG_URL) throw new ApiError('VITE_SHOWCASE_CATALOG_URL is not configured', 500, 'SHOWCASE_CATALOG_MISSING')
+  showcaseSnapshotPromise ??= fetch(SHOWCASE_CATALOG_URL, { headers: { accept: 'application/json' } }).then(async (response) => {
+    if (!response.ok) throw new ApiError(`Showcase catalog failed to load (${response.status})`, response.status, 'SHOWCASE_CATALOG_LOAD_FAILED')
+    const snapshot = record(await response.json())
+    if (number(snapshot.version) !== 1) throw new ApiError('Unsupported Showcase catalog version', 500, 'SHOWCASE_CATALOG_VERSION')
+    return snapshot
+  }).catch((error) => {
+    showcaseSnapshotPromise = undefined
+    throw error
+  })
+  const snapshot = await showcaseSnapshotPromise
+  if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError')
+  return snapshot
 }
 
 function normalizeVariant(input: unknown): QualityVariant {
@@ -152,6 +174,39 @@ function normalizeSeason(input: unknown): SeasonItem {
     number: seasonNumber,
     title: localized(item.title, `Season ${seasonNumber}`),
     episodes: array(item.episodes).map((episode) => normalizeEpisode(episode, seasonNumber)),
+  }
+}
+
+function normalizeTitleDetail(payload: JsonRecord): TitleDetail {
+  const base = normalizeCatalogItem(payload)
+  const explicitSeasons = array(payload.seasons).map(normalizeSeason)
+  const mediaItems = array(payload.mediaItems).map((entry) => record(entry))
+  const groupedSeasons = new Map<number, EpisodeItem[]>()
+  mediaItems.forEach((entry) => {
+    const seasonNumber = number(entry.seasonNumber) ?? 0
+    const episodes = groupedSeasons.get(seasonNumber) ?? []
+    episodes.push(normalizeEpisode(entry, seasonNumber))
+    groupedSeasons.set(seasonNumber, episodes)
+  })
+  const seasons = explicitSeasons.some((season) => season.episodes.length)
+    ? explicitSeasons
+    : [...groupedSeasons.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([seasonNumber, episodes]) => ({
+          number: seasonNumber,
+          title: { fa: `فصل ${seasonNumber}`, en: `Season ${seasonNumber}` },
+          episodes: episodes.sort((left, right) => left.number - right.number),
+        }))
+  const firstPublishedMediaItem = mediaItems.find((item) => item.published !== false)
+  const playableMediaItemId = text(payload.resumeMediaItemId)
+    ?? text(payload.playableMediaItemId)
+    ?? text(firstPublishedMediaItem?.id)
+  return {
+    ...base,
+    mediaItemId: playableMediaItemId ?? '',
+    genres: array(payload.genres).map((genre) => localized(genre, record(genre).name)),
+    seasons,
+    ...(playableMediaItemId ? { playableMediaItemId } : {}),
   }
 }
 
@@ -294,6 +349,16 @@ function withSignal(signal: AbortSignal | undefined, init: RequestInit = {}): Re
 
 export const api = {
   async catalog(options: { cursor?: string; limit?: number; kind?: string; category?: string; year?: number; releaseWindow?: string } = {}, signal?: AbortSignal): Promise<CatalogPage> {
+    if (STATIC_SHOWCASE) {
+      const snapshot = await showcaseSnapshot(signal)
+      let items = array(snapshot.titles).map(normalizeCatalogItem)
+      if (options.kind) items = items.filter((item) => item.kind === options.kind)
+      if (options.category) items = items.filter((item) => item.categorySlug === options.category)
+      if (options.year) items = items.filter((item) => item.year === options.year)
+      if (options.releaseWindow) items = items.filter((item) => item.releaseWindow === options.releaseWindow)
+      const limit = options.limit ?? 40
+      return { items: items.slice(0, limit), total: items.length }
+    }
     const body = await request(`/catalog${queryString({ ...options })}`, withSignal(signal))
     const source = record(body)
     const payload = Object.keys(record(source.data)).length ? record(source.data) : source
@@ -308,6 +373,14 @@ export const api = {
   },
 
   async catalogSections(limitPerSection = 12, signal?: AbortSignal): Promise<CatalogSection[]> {
+    if (STATIC_SHOWCASE) {
+      const snapshot = await showcaseSnapshot(signal)
+      return array(snapshot.sections).map((input) => {
+        const section = record(input)
+        const items = array(section.items).map(normalizeCatalogItem).filter((item) => item.id)
+        return { slug: text(section.slug) ?? '', name: text(section.name) ?? '', items: items.slice(0, limitPerSection), hasMore: items.length > limitPerSection }
+      }).filter((section) => section.slug && section.items.length)
+    }
     const body = record(await request(`/catalog/sections${queryString({ limitPerSection })}`, withSignal(signal)))
     return array(body.sections).map((input) => {
       const section = record(input)
@@ -332,39 +405,16 @@ export const api = {
   },
 
   async title(slug: string, signal?: AbortSignal): Promise<TitleDetail> {
+    if (STATIC_SHOWCASE) {
+      const snapshot = await showcaseSnapshot(signal)
+      const payload = array(snapshot.titles).map(record).find((title) => text(title.slug) === slug)
+      if (!payload) throw new ApiError('Title not found', 404, 'NOT_FOUND')
+      return normalizeTitleDetail(payload)
+    }
     const body = await request(`/titles/${encodeURIComponent(slug)}`, withSignal(signal))
     const source = record(body)
     const payload = Object.keys(record(source.data)).length ? record(source.data) : source
-    const base = normalizeCatalogItem(payload)
-    const explicitSeasons = array(payload.seasons).map(normalizeSeason)
-    const mediaItems = array(payload.mediaItems).map((entry) => record(entry))
-    const groupedSeasons = new Map<number, EpisodeItem[]>()
-    mediaItems.forEach((entry) => {
-      const seasonNumber = number(entry.seasonNumber) ?? 0
-      const episodes = groupedSeasons.get(seasonNumber) ?? []
-      episodes.push(normalizeEpisode(entry, seasonNumber))
-      groupedSeasons.set(seasonNumber, episodes)
-    })
-    const seasons = explicitSeasons.some((season) => season.episodes.length)
-      ? explicitSeasons
-      : [...groupedSeasons.entries()]
-          .sort(([left], [right]) => left - right)
-          .map(([seasonNumber, episodes]) => ({
-            number: seasonNumber,
-            title: { fa: `فصل ${seasonNumber}`, en: `Season ${seasonNumber}` },
-            episodes: episodes.sort((left, right) => left.number - right.number),
-          }))
-    const firstPublishedMediaItem = mediaItems.find((item) => item.published !== false)
-    const playableMediaItemId = text(payload.resumeMediaItemId)
-      ?? text(payload.playableMediaItemId)
-      ?? text(firstPublishedMediaItem?.id)
-    return {
-      ...base,
-      mediaItemId: playableMediaItemId ?? '',
-      genres: array(payload.genres).map((genre) => localized(genre, record(genre).name)),
-      seasons,
-      ...(playableMediaItemId ? { playableMediaItemId } : {}),
-    }
+    return normalizeTitleDetail(payload)
   },
 
   async createPlaybackSession(
@@ -373,6 +423,20 @@ export const api = {
     variantId?: string,
     signal?: AbortSignal,
   ): Promise<PlaybackSession> {
+    if (STATIC_SHOWCASE) {
+      const snapshot = await showcaseSnapshot(signal)
+      const defaults = record(snapshot.defaultVariantByMedia)
+      const selectedVariantId = variantId ?? text(defaults[mediaItemId])
+      const playback = selectedVariantId ? record(record(snapshot.playbackByVariant)[selectedVariantId]) : {}
+      if (!selectedVariantId || text(playback.mediaItemId) !== mediaItemId) throw new ApiError('This media is not prepared for playback', 404, 'NOT_PREPARED')
+      const id = crypto.randomUUID()
+      const session = normalizePlaybackSession({
+        id, state: 'READY', ...playback, pollAfterMs: 1000,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      })
+      showcaseSessions.set(id, session)
+      return session
+    }
     const body = await request('/playback-sessions', withSignal(signal, {
       method: 'POST',
       body: JSON.stringify({ mediaItemId, ...(variantId ? { variantId } : {}), clientCapabilities }),
@@ -382,10 +446,17 @@ export const api = {
   },
 
   async playbackSession(id: string, signal?: AbortSignal): Promise<PlaybackSession> {
+    if (STATIC_SHOWCASE) {
+      if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError')
+      const session = showcaseSessions.get(id)
+      if (!session) throw new ApiError('Playback session not found', 404, 'NOT_FOUND')
+      return session
+    }
     return normalizePlaybackSession(await request(`/playback-sessions/${encodeURIComponent(id)}`, withSignal(signal)))
   },
 
   async clientEvent(event: Record<string, unknown>): Promise<void> {
+    if (STATIC_SHOWCASE) return
     await request('/client-events', { method: 'POST', body: JSON.stringify(event), keepalive: true })
   },
 

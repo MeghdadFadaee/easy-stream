@@ -83,3 +83,41 @@ corepack pnpm showcase prune --apply
 ```
 
 SQLite, artwork, subtitles, fonts, and HLS generations live under `SHOWCASE_DATA_ROOT`. Back up that directory if the prepared demo state matters. The app itself does not terminate TLS; for a public domain, place Caddy or another HTTPS reverse proxy in front of port 8080.
+
+## Portable static deployment
+
+Create one self-contained folder with the viewer, catalog, artwork, subtitles, fonts, and converted HLS media:
+
+```sh
+corepack pnpm showcase export-static
+```
+
+The default output is `dist/showcase-static`. Change it in `.env.showcase` with `SHOWCASE_EXPORT_ROOT`, or for one run:
+
+```sh
+corepack pnpm showcase export-static --output ./release/showcase
+```
+
+This one command rescans the archive, sequentially prepares missing compatible media, removes stale generations, builds the viewer, and replaces the previous managed export. Existing files are hard-linked when the destination is on the same filesystem, so creating an export normally consumes almost no additional local disk space. Copying is used automatically when hard links are unavailable. The exported folder itself is portable; an upload tool reads the linked files just like ordinary files.
+
+Preview the exact static release before uploading it:
+
+```sh
+corepack pnpm showcase preview-static
+```
+
+Then upload everything inside `dist/showcase-static` to Vercel static hosting, Netlify, Cloudflare Pages, an S3-compatible static bucket, shared hosting, or a normal Caddy/Nginx document root. Routes use URL hashes (`/#/title/example`), so no SPA rewrite rule is needed and the folder may be hosted below a subdirectory.
+
+The host must serve the folder over HTTP or HTTPS; browsers cannot reliably stream it by opening `index.html` through `file://`. Ensure these MIME mappings are available:
+
+| Extension | Content-Type |
+|---|---|
+| `.m3u8` | `application/vnd.apple.mpegurl` |
+| `.m4s` | `video/iso.segment` |
+| `.mp4` | `video/mp4` |
+| `.vtt` | `text/vtt; charset=utf-8` |
+| `.ass` | `text/plain; charset=utf-8` |
+
+For Caddy, `file_server` provides the required static hosting. For Nginx, include the standard `mime.types` file and add `application/vnd.apple.mpegurl m3u8;` and `video/iso.segment m4s;` if the installed MIME table lacks them.
+
+No Node.js, SQLite, Fastify, FFmpeg, API, database, or background process runs on the hosting service. All exported media is public by design; never include private or access-controlled titles in this Showcase workflow.

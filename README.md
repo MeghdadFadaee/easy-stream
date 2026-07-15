@@ -16,7 +16,7 @@ The first version targets Chrome, Firefox, and modern MSE-capable Android TV bro
 
 See [architecture.md](docs/architecture.md) for the media decisions and [operations.md](docs/operations.md) for deployment gates.
 
-For a small, open demo that runs as one Node process with SQLite and no Docker, PostgreSQL, Redis, worker, queue, or admin panel, use the [Showcase edition](docs/showcase.md).
+For a small, open demo that runs locally as one Node/SQLite process—or exports as a portable folder for any static host—use the [Showcase edition](docs/showcase.md).
 
 ## What happens to a movie
 
