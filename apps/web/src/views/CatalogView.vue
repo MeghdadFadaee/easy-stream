@@ -17,6 +17,7 @@ const loading = ref(true)
 const error = ref('')
 const { localize, t } = useI18n()
 const player = usePlayerStore()
+const showcase = import.meta.env.VITE_APP_EDITION === 'showcase'
 const items = computed(() => sections.value.flatMap((section) => section.items))
 const featured = computed(() => items.value.find((item) => item.playable) ?? items.value[0])
 const { restoreFocus } = useSpatialNavigation(root, { restoreKey: 'catalog-focus' })
@@ -101,7 +102,7 @@ onMounted(() => void load())
       <section v-for="section in sections" :key="section.slug" class="catalog-section">
         <div class="section-heading">
           <h2>{{ section.name }}</h2>
-          <RouterLink class="secondary-button focus-ring" data-tv-focus :to="{ name: 'browse', params: { category: section.slug } }">
+          <RouterLink v-if="!showcase" class="secondary-button focus-ring" data-tv-focus :to="{ name: 'browse', params: { category: section.slug } }">
             {{ t('browseAll') }}
           </RouterLink>
         </div>

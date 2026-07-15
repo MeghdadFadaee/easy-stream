@@ -9,6 +9,7 @@ import { useSpatialNavigation } from '@/composables/spatial-navigation'
 
 const appRoot = ref<HTMLElement | null>(null)
 const router = useRouter()
+const showcase = import.meta.env.VITE_APP_EDITION === 'showcase'
 useSpatialNavigation(appRoot, { onBack: () => router.back() })
 </script>
 
@@ -23,8 +24,10 @@ useSpatialNavigation(appRoot, { onBack: () => router.back() })
         <BrandMark />
         <span>Easy Stream</span>
       </span>
-      <span class="footer-dot" aria-hidden="true">•</span>
-      <RouterLink to="/admin">Admin</RouterLink>
+      <template v-if="!showcase">
+        <span class="footer-dot" aria-hidden="true">•</span>
+        <RouterLink to="/admin">Admin</RouterLink>
+      </template>
     </footer>
     <PlayerShell />
   </div>

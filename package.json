@@ -13,6 +13,8 @@
     "test": "corepack pnpm -r --if-present test",
     "typecheck": "corepack pnpm -r --if-present typecheck",
     "scan:samples": "corepack pnpm --filter @easy-stream/worker scan -- --root ./archive --output ./data/metadata/catalog.json --inventory-output ./data/metadata/inventory.json",
+    "showcase": "corepack pnpm --filter @easy-stream/showcase cli --",
+    "showcase:build": "VITE_APP_EDITION=showcase corepack pnpm --filter @easy-stream/web build && corepack pnpm --filter @easy-stream/showcase build",
     "migrate": "corepack pnpm --filter @easy-stream/database migrate",
     "clean": "corepack pnpm -r --if-present clean"
   },

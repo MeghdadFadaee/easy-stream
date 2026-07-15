@@ -1,20 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import AdminView from '@/views/AdminView.vue'
 import CatalogView from '@/views/CatalogView.vue'
-import BrowseView from '@/views/BrowseView.vue'
-import SearchView from '@/views/SearchView.vue'
 import TitleView from '@/views/TitleView.vue'
+
+const showcase = import.meta.env.VITE_APP_EDITION === 'showcase'
 
 export const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
   routes: [
     { path: '/', name: 'catalog', component: CatalogView },
-    { path: '/search', name: 'search', component: SearchView },
-    { path: '/browse/:category', name: 'browse', component: BrowseView },
+    ...(!showcase ? [
+      { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
+      { path: '/browse/:category', name: 'browse', component: () => import('@/views/BrowseView.vue') },
+    ] : []),
     { path: '/title/:slug', name: 'title', component: TitleView },
-    { path: '/admin', name: 'admin', component: AdminView },
+    ...(!showcase ? [{ path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue') }] : []),
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

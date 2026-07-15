@@ -10,6 +10,7 @@ const ui = useUiStore()
 const router = useRouter()
 const { language, t } = useI18n()
 const searchTerm = ref('')
+const showcase = import.meta.env.VITE_APP_EDITION === 'showcase'
 
 function submitSearch() {
   const query = searchTerm.value.trim()
@@ -34,12 +35,12 @@ function toggleLanguage() {
       <RouterLink class="nav-link focus-ring" data-tv-focus data-focus-id="nav-catalog" to="/">
         {{ t('home') }}
       </RouterLink>
-      <RouterLink class="nav-link focus-ring" data-tv-focus data-focus-id="nav-search" to="/search">
+      <RouterLink v-if="!showcase" class="nav-link focus-ring" data-tv-focus data-focus-id="nav-search" to="/search">
         {{ t('search') }}
       </RouterLink>
     </nav>
 
-    <form class="header-search" role="search" @submit.prevent="submitSearch">
+    <form v-if="!showcase" class="header-search" role="search" @submit.prevent="submitSearch">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /></svg>
       <input
         v-model="searchTerm"
